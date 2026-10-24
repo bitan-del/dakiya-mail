@@ -1,0 +1,216 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/db"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/getsentry/sentry-go"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+func (r *emailRepository) GetSMTPIMAP(ctx context.Context, userID, emailAccountID string) (*models.SmtpImap, *errx.Error) {
+	var imap models.Service
+	var smtp models.Service
+	var ts time.Time
+
+	query := `
+		SELECT
+    	 smtp.smtp_host,
+    	 smtp.smtp_port,
+    	 smtp.smtp_user,
+    	 smtp.smtp_password,
+   		 smtp.imap_host,
+    	 smtp.imap_port,
+    	 smtp.imap_user,
+    	 smtp.imap_password,
+    	 smtp.updated_at
+	 	FROM 
+    	 email_accounts ea
+		JOIN 
+    	 email_accounts_smtp_imap smtp ON ea.id = smtp.email_account_id
+		WHERE 
+     	 ea.user_id = $1
+    	 AND ea.id = $2
+	`
+
+	params := []any{
+		userID,
+		emailAccountID,
+	}
+
+	err := r.DB.QueryRow(
+		ctx,
+		query,
+		params...,
+	).Scan(
+		&smtp.Host, &smtp.Port, &smtp.Username, &smtp.Password,
+		&imap.Host, &imap.Port, &imap.Username, &imap.Password,
+		&ts,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		db.CaptureError(err, query, params, "queryrow")
+		return nil, errx.InternalError()
+	}
+	imap.Username, err = r.Encrypt.Decrypt(imap.Username)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+	imap.Password, err = r.Encrypt.Decrypt(imap.Password)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+	imap.Host, err = r.Encrypt.Decrypt(imap.Host)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+	smtp.Username, err = r.Encrypt.Decrypt(smtp.Username)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+	smtp.Password, err = r.Encrypt.Decrypt(smtp.Password)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+	smtp.Host, err = r.Encrypt.Decrypt(smtp.Host)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+
+	return &models.SmtpImap{
+		SMTP: &smtp,
+		IMAP: &imap,
+	}, nil
+}
+
+func (r *emailRepository) RevokeOauth(ctx context.Context, id string) *errx.Error {
+	tx, err := r.DB.Begin(ctx)
+	if err != nil {
+		db.CaptureError(err, "", nil, "begin")
+		return errx.InternalError()
+	}
+	defer tx.Rollback(ctx)
+
+	query := `
+		UPDATE email_accounts 
+		SET status = 'revoked' WHERE id = $1
+	`
+
+	params := []any{
+		id,
+	}
+	_, err = tx.Exec(
+		ctx,
+		query,
+		params...,
+	)
+	if err != nil {
+		db.CaptureError(err, query, params, "exec")
+		return errx.InternalError()
+	}
+
+	query = `
+		DELETE FROM email_accounts_oauth
+		WHERE email_account_id = $1
+	`
+
+	params = []any{
+		id,
+	}
+
+	_, err = tx.Exec(
+		ctx,
+		query,
+		params...,
+	)
+	if err != nil {
+		db.CaptureError(err, query, params, "exec")
+		return errx.InternalError()
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		db.CaptureError(err, "", nil, "commit")
+		return errx.InternalError()
+	}
+
+	return nil
+}
+
+func (r *emailRepository) RefreshBoxToken(ctx context.Context, id uuid.UUID, accessToken, refreshToken string, expiresAt time.Time) error {
+	// Refreshed tokens land here from the worker's OnTokenRefresh callback and
+	// must be sealed on the same terms as the ones written at connect time,
+	// otherwise the first refresh silently reverts the row to plaintext.
+	encAccessToken, err := r.sealCredential(accessToken)
+	if err != nil {
+		db.CaptureError(err, "", nil, "encrypt-access-token")
+		return err
+	}
+	encRefreshToken, err := r.sealCredential(refreshToken)
+	if err != nil {
+		db.CaptureError(err, "", nil, "encrypt-refresh-token")
+		return err
+	}
+
+	query := `
+		UPDATE email_accounts_oauth
+		SET access_token = $1, refresh_token = $2, expires_at = $3
+		WHERE email_account_id = $4
+	`
+
+	params := []any{
+		encAccessToken,
+		encRefreshToken,
+		expiresAt,
+		id,
+	}
+
+	if _, err := r.DB.Exec(
+		ctx,
+		query,
+		params...,
+	); err != nil {
+		// params holds the sealed tokens; keep them out of the error report.
+		db.CaptureError(err, query, nil, "exec")
+		return err
+	}
+	return nil
+}
+
+func (r *emailRepository) ReplaceSMTPIMAPCredentials(ctx context.Context, id uuid.UUID, creds *models.SmtpImap) error {
+	if creds == nil || creds.SMTP == nil || creds.IMAP == nil {
+		return errors.New("smtp and imap credentials are required")
+	}
+	sealed := make([]string, 0, 6)
+	for _, plain := range []string{creds.SMTP.Host, creds.SMTP.Username, creds.SMTP.Password, creds.IMAP.Host, creds.IMAP.Username, creds.IMAP.Password} {
+		v, err := r.sealCredential(plain)
+		if err != nil {
+			db.CaptureError(err, "", nil, "encrypt-smtp-imap")
+			return err
+		}
+		sealed = append(sealed, v)
+	}
+	query := `
+		UPDATE email_accounts_smtp_imap
+		SET smtp_host = $1, smtp_port = $2, smtp_user = $3, smtp_password = $4,
+		    imap_host = $5, imap_port = $6, imap_user = $7, imap_password = $8
+		WHERE email_account_id = $9
+	`
+	if _, err := r.DB.Exec(ctx, query, sealed[0], creds.SMTP.Port, sealed[1], sealed[2], sealed[3], creds.IMAP.Port, sealed[4], sealed[5], id); err != nil {
+		db.CaptureError(err, query, nil, "exec")
+		return err
+	}
+	return nil
+}

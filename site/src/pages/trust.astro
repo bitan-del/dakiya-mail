@@ -1,0 +1,569 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroAtmosphere from '../components/HeroAtmosphere.astro';
+import Icon from '../components/Icon.astro';
+import CTA from '../components/CTA.astro';
+
+/* -----------------------------------------------------------------
+   Trust page. Full redesign.
+
+   Source of truth:
+     - CLAUDE.md, sections "Encryption Model", "Worker Networking
+       Rules", "Fraud And Abuse Detection", "Sending Safety Policy"
+     - internal/app/cipher/*
+     - internal/infrastructure/kms/*
+     - cmd/worker/main.go
+     - internal/api/middleware/ratelimit.go
+     - internal/pkg/captcha/turnstile.go
+     - internal/repository/pg_warmup.go
+
+   Tone: factual. No fake compliance badges. No fake metrics.
+   No customer quotes. Planned items are marked as planned, not shipped.
+
+   Astro parser quirk: any `<` or `<=` comparison inside `{}` blocks
+   breaks the parser. Hoist them up here.
+   ----------------------------------------------------------------- */
+
+// Posture badges. Honest about what is shipped vs planned.
+// `state` drives the dot color in the JSX below.
+const posture = [
+  {
+    label: 'Open source, auditable',
+    note: 'Backend, workers, consumer and frontend are public.',
+    state: 'shipped',
+  },
+  {
+    label: 'TLS 1.2+ in transit',
+    note: 'Edge terminates on Cloudflare. Origin requires TLS 1.2 or above.',
+    state: 'shipped',
+  },
+  {
+    label: 'Encryption at rest via AWS KMS',
+    note: 'Per-organization data keys, AES-256-GCM application layer.',
+    state: 'shipped',
+  },
+  {
+    label: 'GDPR-aligned data handling',
+    note: 'Plain-English privacy policy and data processing terms on request.',
+    state: 'shipped',
+  },
+  {
+    label: 'SOC 2 Type II',
+    note: 'Controls in place. Audit window opens with our auditor.',
+    state: 'planned',
+  },
+  {
+    label: 'ISO 27001',
+    note: 'Under evaluation. No certification claimed today.',
+    state: 'planned',
+  },
+];
+
+// Encryption flow steps for the KMS visual.
+const flow = [
+  {
+    n: '01',
+    title: 'AWS KMS',
+    body: 'Customer Master Key lives in KMS and never leaves it. KMS generates a 32-byte data encryption key for each organization on first use.',
+    tag: 'Root of trust',
+  },
+  {
+    n: '02',
+    title: 'Per-organization DEK',
+    body: 'The plaintext DEK is returned briefly to the application. The encrypted DEK blob comes back in the same call and is the only long-term copy.',
+    tag: 'AES-256',
+  },
+  {
+    n: '03',
+    title: 'AES-GCM seal',
+    body: 'Sensitive fields like mailbox tokens and IMAP credentials are sealed with AES-256-GCM using the user DEK, then base64 encoded.',
+    tag: 'Authenticated',
+  },
+  {
+    n: '04',
+    title: 'Ciphertext at rest',
+    body: 'Ciphertext is stored in Postgres. The encrypted DEK blob lives in the user_encrypted_keys Postgres table. Plaintext DEKs are cached in Redis with a TTL.',
+    tag: 'Envelope',
+  },
+];
+
+// Two-column "what we collect / what we never collect".
+const collect = [
+  'Account profile: email, name, organization.',
+  'Mailbox credentials, encrypted at rest: OAuth tokens, IMAP and SMTP secrets.',
+  'Sent and received message bodies for connected mailboxes, encrypted at rest.',
+  'Recipient lists you upload or sync.',
+  'Deliverability signals: bounces, complaints, replies, opens, clicks, suppression.',
+  'Billing metadata via Stripe. Card data never touches our servers.',
+  'Operational logs scoped to debugging. Customer message bodies are not logged.',
+];
+
+const neverCollect = [
+  'Plaintext passwords. We store password hashes only, and never store mailbox passwords in plaintext.',
+  'Plaintext DEKs at rest. The encrypted DEK is what persists.',
+  'Card numbers, CVCs, or full PAN. Stripe holds the payment instrument.',
+  'Recipient browsing or off-platform behavior. Tracking covers your campaign mail only.',
+  'Customer message bodies inside error reports. Sentry payloads are scrubbed.',
+  'Cross-customer data sharing. Tenancy is enforced at the query layer.',
+];
+
+// Subprocessor summary. The infrastructure Dakiya Mail relies on to run.
+const subs = [
+  { name: 'AWS',         use: 'Compute, KMS, S3, MSK, RDS',               region: 'us-east-1, eu-west-1' },
+  { name: 'Cloudflare',  use: 'Edge, DDoS, Turnstile CAPTCHA',            region: 'Global' },
+  { name: 'Stripe',      use: 'Billing and tax',                          region: 'United States' },
+  { name: 'Postmark',    use: 'Transactional account email',              region: 'United States' },
+  { name: 'Sentry',      use: 'Error reporting, content scrubbed',        region: 'United States' },
+  { name: 'PostHog',     use: 'Product analytics, owner-disable-able',    region: 'Germany' },
+];
+
+// Abuse and safety controls. Numbers below come straight from the repo.
+const safety = [
+  {
+    icon: 'shield',
+    title: 'Warmup-token verification',
+    body: 'Every warmup email carries a verification token. Missing, expired or malformed tokens are recorded against the sending mailbox.',
+  },
+  {
+    icon: 'warning',
+    title: 'Auto-block thresholds',
+    body: 'Three or more invalid warmup-token attempts in 24 hours, or a spam score above 50, removes a mailbox from the shared warmup pool.',
+  },
+  {
+    icon: 'filter',
+    title: 'Suppression hygiene',
+    body: 'Bounces, complaints and unsubscribes are written to suppression and enforced at send time. Campaigns skip suppressed recipients automatically.',
+  },
+  {
+    icon: 'lock',
+    title: 'Turnstile on auth surfaces',
+    body: 'Cloudflare Turnstile gates login, registration, password reset and confirmation flows. Challenge freshness and remote IP are validated server-side.',
+  },
+  {
+    icon: 'cpu',
+    title: 'Per-user rate limiting',
+    body: 'API and WebSocket traffic are rate-limited per user against Redis-backed counters, with category-specific budgets per plan.',
+  },
+  {
+    icon: 'check',
+    title: 'Event idempotency',
+    body: 'Tracking events deduplicate via in-memory and persistent caches. Deliverability events and Stripe webhooks carry idempotency keys.',
+  },
+];
+
+// Worker boundary properties.
+const workerBoundary = [
+  { k: 'PostgreSQL',  v: 'never connected', tone: 'never' },
+  { k: 'Kafka',       v: 'commands in, results out', tone: 'yes' },
+  { k: 'AWS KMS',     v: 'envelope decryption only', tone: 'yes' },
+  { k: 'Backend API', v: 'DEK + message map (HTTPS)', tone: 'yes' },
+  { k: 'S3',          v: 'object storage only',      tone: 'yes' },
+  { k: 'Redis',       v: 'plaintext DEK cache, TTL', tone: 'yes' },
+];
+
+// Disclosure SLAs. Honest, conservative.
+const disclosure = [
+  { k: 'Acknowledge',   v: 'within 1 business day' },
+  { k: 'Initial triage', v: 'within 3 business days' },
+  { k: 'Status updates', v: 'every 7 days until resolved' },
+  { k: 'Public credit',  v: 'on request, after fix shipped' },
+];
+---
+<Layout
+  title="Security, Privacy & Trust | Dakiya Mail"
+  description="How Dakiya Mail protects your mailbox, your data and your reputation. Envelope encryption with AWS KMS, worker isolation, abuse controls and vulnerability reporting."
+>
+
+  <!-- =====================================================
+       HERO. HeroAtmosphere + floating card below.
+       ===================================================== -->
+  <section class="relative isolate overflow-hidden">
+    <HeroAtmosphere />
+
+    <div class="container-page relative pt-16 md:pt-24 pb-44 md:pb-56 text-center">
+      <div class="inline-flex items-center gap-2 h-7 pl-1 pr-3 rounded-full bg-white/15 backdrop-blur ring-1 ring-white/25 text-[12px] text-white/95 shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+        <span class="inline-flex items-center h-5 px-1.5 rounded-full text-[10.5px] font-semibold uppercase tracking-[0.06em] bg-white" style="color:#0369a1;">
+          Trust
+        </span>
+        Operational truth, not marketing.
+      </div>
+
+      <h1 class="mt-8 md:mt-10 text-[44px] sm:text-6xl md:text-[72px] lg:text-[80px] font-semibold tracking-[-0.04em] leading-[0.98] text-white max-w-4xl mx-auto">
+        How Dakiya Mail protects<br/>your mailbox.
+      </h1>
+      <p class="mt-6 text-[17px] md:text-[19px] text-white/80 max-w-2xl mx-auto leading-relaxed">
+        We hold mailbox credentials, message bodies, and recipient lists. That is a serious responsibility. This page documents the encryption model, the worker boundary, the abuse controls, and how to reach our security team.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="mailto:team@dakiyamail.com" class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-semibold bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.3)] transition-all duration-200 ease-out shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18)]">
+          <span style="color:#075985;">Report a vulnerability</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#075985" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="https://status.dakiyamail.com" class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-medium bg-white/10 backdrop-blur ring-1 ring-white/40 text-white hover:bg-white/20 hover:-translate-y-0.5 transition-all duration-200 ease-out">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          status.dakiyamail.com
+          <Icon name="arrowUpRight" size={12} />
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       FLOATING POSTURE CARD under hero. -mt-36 / -mt-44 pattern.
+       ===================================================== -->
+  <section class="relative -mt-36 md:-mt-44 pb-16 md:pb-24 z-10">
+    <div class="container-page">
+      <div class="rounded-[16px] bg-white ring-1 ring-slate-200 overflow-hidden shadow-[0_40px_90px_-30px_rgba(2,32,71,0.35),0_12px_30px_-12px_rgba(15,23,42,0.12)]">
+
+        <div class="px-5 md:px-7 py-4 border-b border-slate-200 flex items-center gap-3">
+          <div>
+            <div class="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">Posture</div>
+            <div class="mt-0.5 text-[13px] text-slate-900 font-medium">What we have shipped, and what is still planned.</div>
+          </div>
+          <a href="/changelog/" class="ml-auto text-[12px] font-medium text-[color:var(--brand)] hover:text-[color:var(--brand-strong)] inline-flex items-center gap-1">
+            Changelog <Icon name="arrowUpRight" size={11} />
+          </a>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3">
+          {posture.map((p, i) => {
+            const shipped = p.state === 'shipped';
+            const dot = shipped ? 'bg-emerald-500' : 'bg-amber-500';
+            const pillBg = shipped ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700';
+            const stateLabel = shipped ? 'Shipped' : 'Planned';
+            const borderRight = (i % 3) !== 2 ? 'lg:border-r' : '';
+            const borderBottomLg = i < 3 ? 'lg:border-b' : '';
+            return (
+              <div class={`p-5 md:p-6 border-b border-slate-200 sm:[&:nth-child(odd)]:border-r sm:last:border-b-0 ${borderRight} ${borderBottomLg}`}>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="text-[14px] font-semibold text-slate-900 tracking-[-0.01em]">{p.label}</div>
+                  <span class={`inline-flex items-center gap-1 h-5 px-1.5 rounded text-[10.5px] font-medium ${pillBg}`}>
+                    <span class={`w-1 h-1 rounded-full ${dot}`}></span>
+                    {stateLabel}
+                  </span>
+                </div>
+                <p class="mt-2 text-[12.5px] text-slate-500 leading-relaxed">{p.note}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <p class="mt-4 text-center text-[12px] text-muted-foreground max-w-2xl mx-auto">
+        We do not claim certifications we do not hold. SOC 2 and ISO 27001 are listed as planned because they are honestly not in place yet.
+      </p>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       ENCRYPTION FLOW. The real envelope model.
+       ===================================================== -->
+  <section class="bg-[color:var(--surface-1)] border-y border-[color:var(--border)] py-16 md:py-24">
+    <div class="container-page">
+      <div class="max-w-2xl">
+        <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Encryption model</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Envelope encryption, with AWS KMS at the root.
+        </h2>
+        <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+          Mailbox tokens, IMAP credentials and other sensitive fields are sealed at the application layer before they touch a database. The key that does the sealing is itself protected by KMS, so a database snapshot in isolation is not enough to read a single byte of plaintext.
+        </p>
+      </div>
+
+      <!-- Flow card -->
+      <div class="mt-10 rounded-[16px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+        <div class="grid md:grid-cols-4">
+          {flow.map((f, i) => {
+            const isLast = i === 3;
+            const isFirstRow = i < 2;
+            const showArrow = i < 3;
+            const borderRight = isLast ? '' : 'md:border-r';
+            const borderBottom = isFirstRow ? 'border-b md:border-b-0' : (i === 2 ? 'border-b md:border-b-0' : '');
+            return (
+              <div class={`p-5 md:p-6 ${borderRight} ${borderBottom} border-[color:var(--border)] relative`}>
+                <div class="flex items-center justify-between">
+                  <div class="font-mono text-[11px] text-muted-foreground tracking-[0.14em]">{f.n}</div>
+                  <span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-medium bg-sky-50 text-sky-700">{f.tag}</span>
+                </div>
+                <div class="mt-3 text-[15px] font-semibold text-heading tracking-[-0.01em]">{f.title}</div>
+                <p class="mt-2 text-[13px] text-foreground/70 leading-relaxed">{f.body}</p>
+                {showArrow && (
+                  <div class="hidden md:flex absolute right-[-10px] top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white ring-1 ring-[color:var(--border)] items-center justify-center z-10">
+                    <Icon name="arrowRight" size={10} class="text-[color:var(--sky-4)]" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <!-- Footer summary strip -->
+        <div class="px-5 md:px-7 py-4 bg-[color:var(--surface-1)] border-t border-[color:var(--border)] flex flex-wrap items-center gap-x-6 gap-y-2 text-[12px] text-muted-foreground">
+          <span class="inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Plaintext DEK cached in Redis with TTL</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Encrypted DEK persisted in Postgres</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> AES-256-GCM authenticated encryption</span>
+        </div>
+      </div>
+
+      <!-- Source anchors. Honest pointer to actual code. -->
+      <div class="mt-6 grid sm:grid-cols-2 gap-2">
+        {[
+          'internal/app/cipher/cipher.go',
+          'internal/app/cipher/encrypt.go',
+          'internal/infrastructure/kms/encryption.go',
+          'internal/infrastructure/encryptedkeys/postgres.go',
+        ].map((p) => (
+          <div class="flex items-center gap-2 px-3 py-2 rounded-[8px] bg-white ring-1 ring-[color:var(--border)] font-mono text-[12px] text-foreground/75">
+            <Icon name="code" size={12} class="text-[color:var(--sky-4)]" />
+            {p}
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       WORKER BOUNDARY.
+       ===================================================== -->
+  <section class="py-16 md:py-24">
+    <div class="container-page grid lg:grid-cols-[1fr_1.2fr] gap-10 lg:gap-16 items-start">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Worker boundary</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Workers do not touch your database.
+        </h2>
+        <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+          Workers are the execution plane. They send and sync mail across many machines with separate network identities. They receive commands from Kafka and publish results to Kafka. They never open a PostgreSQL connection.
+        </p>
+        <p class="mt-3 text-[14.5px] text-foreground/70 leading-relaxed">
+          That boundary matters. A worker compromise does not expose the relational store. Sensitive payloads stay encrypted in transit and are only opened against KMS-backed primitives.
+        </p>
+        <a href="https://github.com/bitan-del/dakiya-mail/blob/main/resources/architecture.md" class="mt-5 inline-flex items-center gap-1.5 text-[13.5px] font-medium text-[color:var(--brand)] hover:text-[color:var(--brand-strong)]">
+          Read the architecture <Icon name="arrowRight" size={12} />
+        </a>
+      </div>
+
+      <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+        <div class="px-5 py-3 border-b border-[color:var(--border)] bg-[color:var(--surface-1)] flex items-center gap-2">
+          <Icon name="cpu" size={14} class="text-[color:var(--sky-5)]" />
+          <div class="text-[12px] font-mono text-muted-foreground tracking-[0.06em]">cmd/worker · network surface</div>
+        </div>
+        <div class="divide-y divide-[color:var(--border)]">
+          {workerBoundary.map((row) => {
+            const isNever = row.tone === 'never';
+            const dot = isNever ? 'bg-rose-500' : 'bg-emerald-500';
+            const pill = isNever ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700';
+            return (
+              <div class="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-5 py-3.5">
+                <div class="text-[13.5px] font-semibold text-heading">{row.k}</div>
+                <div class="text-[12.5px] text-foreground/70 font-mono">{row.v}</div>
+                <span class={`inline-flex items-center gap-1 h-5 px-1.5 rounded text-[10.5px] font-medium ${pill}`}>
+                  <span class={`w-1 h-1 rounded-full ${dot}`}></span>
+                  {isNever ? 'never' : 'allowed'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       DATA WE COLLECT / WE NEVER COLLECT.
+       ===================================================== -->
+  <section class="bg-[color:var(--surface-1)] border-y border-[color:var(--border)] py-16 md:py-24">
+    <div class="container-page">
+      <div class="max-w-2xl mb-10">
+        <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Data handling</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          What we hold, and what we refuse to hold.
+        </h2>
+        <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+          Specifics, not slogans. If you do not see something on the left, we are probably not collecting it. If something on the right ever moves, we will say so on /changelog/.
+        </p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-5">
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+          <div class="px-5 py-3 border-b border-[color:var(--border)] flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+            <div class="text-[12px] uppercase tracking-[0.14em] font-mono text-muted-foreground">What we collect</div>
+          </div>
+          <ul class="divide-y divide-[color:var(--border)]">
+            {collect.map((c) => (
+              <li class="px-5 py-3.5 flex items-start gap-3">
+                <Icon name="check" size={14} class="text-sky-600 mt-0.5 shrink-0" />
+                <span class="text-[13.5px] text-foreground/85 leading-relaxed">{c}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+          <div class="px-5 py-3 border-b border-[color:var(--border)] flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            <div class="text-[12px] uppercase tracking-[0.14em] font-mono text-muted-foreground">What we never collect</div>
+          </div>
+          <ul class="divide-y divide-[color:var(--border)]">
+            {neverCollect.map((c) => (
+              <li class="px-5 py-3.5 flex items-start gap-3">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-500 mt-0.5 shrink-0" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+                <span class="text-[13.5px] text-foreground/85 leading-relaxed">{c}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       ABUSE AND SAFETY POSTURE.
+       ===================================================== -->
+  <section class="py-16 md:py-24">
+    <div class="container-page">
+      <div class="max-w-2xl">
+        <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Abuse and safety</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Layered controls, not one brittle gate.
+        </h2>
+        <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+          A cold email platform is only as safe as the slowest line of defense. We block early, dedupe everywhere, and keep an audit trail of admin actions.
+        </p>
+      </div>
+
+      <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {safety.map((s) => (
+          <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-5" style="box-shadow: var(--shadow-sm);">
+            <div class="inline-flex items-center justify-center w-9 h-9 rounded-[10px] bg-sky-50 text-[color:var(--sky-5)]">
+              <Icon name={s.icon} size={16} />
+            </div>
+            <div class="mt-4 text-[14.5px] font-semibold text-heading tracking-[-0.01em]">{s.title}</div>
+            <p class="mt-1.5 text-[13px] text-foreground/70 leading-relaxed">{s.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       SUBPROCESSORS SUMMARY + LINK.
+       ===================================================== -->
+  <section class="bg-[color:var(--surface-1)] border-y border-[color:var(--border)] py-16 md:py-24">
+    <div class="container-page">
+      <div class="flex items-end justify-between flex-wrap gap-4 mb-8">
+        <div class="max-w-xl">
+          <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Subprocessors</div>
+          <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">Who else touches your data.</h2>
+          <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+            The infrastructure and operational providers Dakiya Mail relies on to run.
+          </p>
+        </div>
+      </div>
+
+      <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+        <div class="grid grid-cols-[1.2fr_2fr_1.2fr] px-5 py-3 bg-[color:var(--surface-1)] border-b border-[color:var(--border)] text-[10.5px] uppercase tracking-[0.14em] font-mono text-muted-foreground">
+          <div>Subprocessor</div>
+          <div>Purpose</div>
+          <div>Region</div>
+        </div>
+        {subs.map((s) => (
+          <div class="grid grid-cols-[1.2fr_2fr_1.2fr] px-5 py-3.5 border-b border-[color:var(--border)] last:border-b-0 text-[13.5px] items-baseline">
+            <div class="font-semibold text-heading">{s.name}</div>
+            <div class="text-foreground/75">{s.use}</div>
+            <div class="font-mono text-[12.5px] text-foreground/70">{s.region}</div>
+          </div>
+        ))}
+      </div>
+
+      <p class="mt-4 text-[12px] text-muted-foreground">
+        We give 30 days notice before adding any subprocessor that processes customer Personal Data.
+      </p>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       RESPONSIBLE DISCLOSURE.
+       ===================================================== -->
+  <section class="py-16 md:py-24">
+    <div class="container-page grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-16 items-start">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">Responsible disclosure</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Found something. Tell us first.
+        </h2>
+        <p class="mt-4 text-[15px] text-foreground/75 leading-relaxed">
+          We welcome reports from security researchers and operators. Send a description, a proof of concept, and any logs to <span class="font-mono text-heading">team@dakiyamail.com</span>. We will acknowledge quickly, triage in the open, and keep you posted until the fix ships.
+        </p>
+        <p class="mt-3 text-[14.5px] text-foreground/70 leading-relaxed">
+          Please avoid testing that degrades service for other customers, accesses data that is not your own, or relies on social engineering of employees or contractors. Good faith research is welcome.
+        </p>
+
+        <div class="mt-6 inline-flex items-center gap-2 px-3 py-2 rounded-[10px] bg-white ring-1 ring-[color:var(--border)]">
+          <Icon name="mail" size={14} class="text-[color:var(--sky-5)]" />
+          <a href="mailto:team@dakiyamail.com" class="font-mono text-[13px] text-heading hover:text-[color:var(--brand-strong)]">team@dakiyamail.com</a>
+        </div>
+      </div>
+
+      <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+        <div class="px-5 py-3 border-b border-[color:var(--border)] bg-[color:var(--surface-1)] text-[12px] uppercase tracking-[0.14em] font-mono text-muted-foreground">
+          Response SLA
+        </div>
+        <div class="divide-y divide-[color:var(--border)]">
+          {disclosure.map((d) => (
+            <div class="grid grid-cols-[140px_1fr] gap-3 px-5 py-3.5 items-baseline">
+              <div class="text-[12.5px] uppercase tracking-[0.12em] font-mono text-muted-foreground">{d.k}</div>
+              <div class="text-[13.5px] text-foreground/85">{d.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       STATUS + CHANGELOG QUICK LINKS.
+       ===================================================== -->
+  <section class="bg-[color:var(--surface-1)] border-t border-[color:var(--border)] py-12 md:py-16">
+    <div class="container-page grid sm:grid-cols-2 gap-4">
+      <a href="https://status.dakiyamail.com" class="group rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-5 flex items-start gap-4 hover:-translate-y-0.5 transition-transform" style="box-shadow: var(--shadow-sm);">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-[10px] bg-emerald-50">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        </div>
+        <div class="flex-1">
+          <div class="text-[14.5px] font-semibold text-heading">Live status</div>
+          <div class="mt-1 text-[12.5px] text-foreground/70 leading-relaxed">API, worker fleet, webhooks, realtime and inbox sync. Component-level history at <span class="font-mono">status.dakiyamail.com</span>.</div>
+        </div>
+        <Icon name="arrowUpRight" size={14} class="text-muted-foreground group-hover:text-[color:var(--brand)] mt-1" />
+      </a>
+
+      <a href="/changelog/" class="group rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-5 flex items-start gap-4 hover:-translate-y-0.5 transition-transform" style="box-shadow: var(--shadow-sm);">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-[10px] bg-sky-50 text-[color:var(--sky-5)]">
+          <Icon name="list" size={16} />
+        </div>
+        <div class="flex-1">
+          <div class="text-[14.5px] font-semibold text-heading">Changelog</div>
+          <div class="mt-1 text-[12.5px] text-foreground/70 leading-relaxed">Security-relevant changes are flagged. Subprocessor additions are announced 30 days ahead.</div>
+        </div>
+        <Icon name="arrowUpRight" size={14} class="text-muted-foreground group-hover:text-[color:var(--brand)] mt-1" />
+      </a>
+    </div>
+  </section>
+
+  <CTA
+    title="Want the full security package?"
+    description="Data processing terms, security questionnaire, and architecture deep dive on request. Replies from a human within one business day."
+    primaryLabel="Email team@dakiyamail.com"
+    primaryHref="mailto:team@dakiyamail.com"
+    secondaryLabel="Read the privacy policy"
+    secondaryHref="/privacy/"
+  />
+</Layout>
+</content>
+</invoke>

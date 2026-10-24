@@ -1,0 +1,1540 @@
+package organization
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
+	"time"
+
+	"github.com/bitan-del/dakiya-mail/internal/app/dailythrottle"
+	"github.com/bitan-del/dakiya-mail/internal/config"
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/crypt"
+	"github.com/bitan-del/dakiya-mail/internal/repository"
+	"github.com/getsentry/sentry-go"
+	"github.com/google/uuid"
+)
+
+const (
+	// InvitationTTL is the invitation expiration used when no instance
+	// settings service is wired; the operator's value overrides it.
+	InvitationTTL = 7 * 24 * time.Hour // 7 days
+
+	// InvitationTokenLength is the length of invitation tokens
+	InvitationTokenLength = 32
+)
+
+// InstanceSettings is the operator-editable half of the invite flow. Satisfied
+// by instancesettings.Service; injected post-construction so this package needs
+// no import of it (no cycle).
+type InstanceSettings interface {
+	InvitationTTL(ctx context.Context) time.Duration
+	InviteLinksEnabled(ctx context.Context) bool
+}
+
+// OrganizationService defines the interface for organization management
+type OrganizationService interface {
+	// WireAuthPolicy attaches the deployment auth policy after construction.
+	WireAuthPolicy(p *config.AuthPolicy)
+
+	// WireInstanceSettings attaches the database-backed instance settings
+	// (post-construction; nil keeps the compiled defaults).
+	WireInstanceSettings(s InstanceSettings)
+
+	// CRUD
+	Create(ctx context.Context, userID uuid.UUID, name string) (*models.Organization, *errx.Error)
+	Get(ctx context.Context, orgID uuid.UUID) (*models.Organization, *errx.Error)
+	GetBySlug(ctx context.Context, slug string) (*models.Organization, *errx.Error)
+	Update(ctx context.Context, orgID uuid.UUID, req *models.UpdateOrganizationRequest) (*models.Organization, *errx.Error)
+	Delete(ctx context.Context, orgID uuid.UUID) *errx.Error
+
+	// User's organizations
+	GetUserOrganizations(ctx context.Context, userID uuid.UUID) ([]models.OrganizationMember, *errx.Error)
+	GetUserDefaultOrganization(ctx context.Context, userID uuid.UUID) (*models.Organization, *errx.Error)
+
+	// Member management
+	GetMembers(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationMember, *errx.Error)
+	GetMembership(ctx context.Context, orgID, userID uuid.UUID) (*models.OrganizationMember, *errx.Error)
+	InviteMember(ctx context.Context, orgID uuid.UUID, inviterID uuid.UUID, req *models.InviteMemberRequest) (*models.OrganizationInvitation, *errx.Error)
+	AcceptInvitation(ctx context.Context, token string, userID uuid.UUID, email string) (*models.OrganizationMember, *errx.Error)
+	AcceptInvitationByID(ctx context.Context, invitationID, userID uuid.UUID, email string) (*models.OrganizationMember, *errx.Error)
+	PreviewInvitation(ctx context.Context, token string) (*models.InvitationPreview, *errx.Error)
+	GetInvitationToken(ctx context.Context, orgID, invitationID uuid.UUID) (string, *errx.Error)
+
+	// Custom roles
+	ListRoles(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationRole, *errx.Error)
+	CreateRole(ctx context.Context, orgID, actorID uuid.UUID, req *models.CreateOrganizationRoleRequest) (*models.OrganizationRole, *errx.Error)
+	UpdateRole(ctx context.Context, orgID, actorID, roleID uuid.UUID, req *models.UpdateOrganizationRoleRequest) (*models.OrganizationRole, *errx.Error)
+	DeleteRole(ctx context.Context, orgID, actorID, roleID uuid.UUID) *errx.Error
+	UpdateMemberRole(ctx context.Context, orgID, actorID, memberUserID uuid.UUID, req *models.UpdateMemberRequest) (*models.OrganizationMember, *errx.Error)
+	RemoveMember(ctx context.Context, orgID, memberUserID uuid.UUID) *errx.Error
+
+	// Invitations
+	GetPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationInvitation, *errx.Error)
+	GetUserPendingInvitations(ctx context.Context, email string) ([]models.OrganizationInvitation, *errx.Error)
+	CancelInvitation(ctx context.Context, invitationID uuid.UUID) *errx.Error
+
+	// Ownership transfer
+	TransferOwnership(ctx context.Context, orgID, newOwnerUserID uuid.UUID) *errx.Error
+
+	// Permission checks
+	HasPermission(ctx context.Context, orgID, userID uuid.UUID, perm models.OrganizationPermission) (bool, *errx.Error)
+	RequirePermission(ctx context.Context, orgID, userID uuid.UUID, perm models.OrganizationPermission) *errx.Error
+
+	// Limit checks
+	CanAddMember(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error)
+	CanAddCampaign(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error)
+	CanAddEmailAccount(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error)
+	GetCampaignCounts(ctx context.Context, orgID uuid.UUID) (total int, active int, err *errx.Error)
+	GetOrganizationLimits(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimits, *errx.Error)
+	GetOrganizationCounts(ctx context.Context, orgID uuid.UUID) (*models.OrganizationCounts, *errx.Error)
+
+	// Enterprise inquiries
+	CreateEnterpriseInquiry(ctx context.Context, inquiry *models.EnterpriseInquiry) (*models.EnterpriseInquiry, *errx.Error)
+
+	// Admin permissions (for admin middleware)
+	GetUserAdminPermissions(ctx context.Context, userID uuid.UUID) (uint32, error)
+
+	// Admin: read-only org listing for the admin panel. Detail composes
+	// the list-shape row with counts, plan defaults, the override row,
+	// and the effective limits the runtime actually enforces.
+	SearchOrganizationsForAdmin(ctx context.Context, search *models.AdminOrgSearch) (*models.AdminOrgsResult, *errx.Error)
+	GetOrganizationAdminDetail(ctx context.Context, orgID uuid.UUID) (*models.AdminOrgDetail, *errx.Error)
+	GetOrganizationMembersForAdmin(ctx context.Context, orgID uuid.UUID) ([]models.AdminOrgMember, *errx.Error)
+
+	// Admin: per-org limit overrides. Read returns nil if the org has
+	// never been touched. Set is an upsert that stamps granted_by /
+	// granted_at on every write.
+	GetLimitOverrides(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimitOverrides, *errx.Error)
+	SetLimitOverrides(ctx context.Context, orgID uuid.UUID, req *models.UpdateOrgOverridesRequest, grantedBy uuid.UUID) (*models.OrganizationLimitOverrides, *errx.Error)
+
+	// Effective limits: plan defaults overlaid with overrides. This is
+	// what the in-app limit checks (CanAddMember / Campaign / EmailAccount)
+	// compare counts against.
+	GetEffectiveLimits(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimits, *errx.Error)
+
+	// WebhookDispatchLimit returns the org's per-minute cap on webhook +
+	// integration fan-out, derived from the org's effective plan limits. Used by
+	// the webhook dispatch throttle. Never errors — falls back to the generous
+	// base cap so dispatch is never blocked by a limits-lookup failure.
+	WebhookDispatchLimit(ctx context.Context, orgID uuid.UUID) int
+
+	// Limit-increase request workflow. Users self-serve via
+	// SubmitLimitIncreaseRequest from the dashboard; admins drain the
+	// queue with the AdminListLimitRequests / ApproveLimitRequest /
+	// RejectLimitRequest path. Approving rewrites the override row via
+	// SetLimitOverrides so the audit story stays unified.
+	SubmitLimitIncreaseRequest(ctx context.Context, orgID, submitterID uuid.UUID, req *models.CreateLimitIncreaseRequest) (*models.LimitIncreaseRequest, *errx.Error)
+	ListLimitRequestsForOrg(ctx context.Context, orgID uuid.UUID) ([]models.LimitIncreaseRequest, *errx.Error)
+	CancelLimitRequest(ctx context.Context, id, userID uuid.UUID) *errx.Error
+	AdminListLimitRequests(ctx context.Context, search *models.AdminLimitRequestSearch) (*models.AdminLimitRequestsResult, *errx.Error)
+	ApproveLimitRequest(ctx context.Context, id, reviewerID uuid.UUID, notes string) (*models.LimitIncreaseRequest, *errx.Error)
+	RejectLimitRequest(ctx context.Context, id, reviewerID uuid.UUID, notes string) (*models.LimitIncreaseRequest, *errx.Error)
+}
+
+type organizationService struct {
+	orgRepo  repository.OrganizationRepository
+	subRepo  repository.SubscriptionRepository
+	userRepo repository.UserRepository
+	throttle dailythrottle.Service
+	// authPolicy is wired after construction, because the policy is loaded
+	// alongside the mail transport and not available at this call site.
+	authPolicy *config.AuthPolicy
+	// settings is the operator-editable invite configuration, wired after
+	// construction because it needs the database pool.
+	settings InstanceSettings
+}
+
+// WireAuthPolicy attaches the deployment auth policy, so invitations answer to
+// DISABLE_REGISTRATION the same way the signup form does.
+func (s *organizationService) WireAuthPolicy(p *config.AuthPolicy) {
+	s.authPolicy = p
+}
+
+// WireInstanceSettings attaches the instance settings document, so the invite
+// TTL and the invite-link switch answer to the admin page.
+func (s *organizationService) WireInstanceSettings(set InstanceSettings) {
+	s.settings = set
+}
+
+// invitationTTL is the operator's invitation lifetime, falling back to the
+// compiled default when nothing is wired.
+func (s *organizationService) invitationTTL(ctx context.Context) time.Duration {
+	if s.settings == nil {
+		return InvitationTTL
+	}
+	if ttl := s.settings.InvitationTTL(ctx); ttl > 0 {
+		return ttl
+	}
+	return InvitationTTL
+}
+
+// inviteLinksEnabled reports whether the copyable invite link is exposed. It
+// defaults to on, so an unwired service keeps the historic behavior.
+func (s *organizationService) inviteLinksEnabled(ctx context.Context) bool {
+	if s.settings == nil {
+		return true
+	}
+	return s.settings.InviteLinksEnabled(ctx)
+}
+
+// NewService creates a new organization service
+func NewService(
+	orgRepo repository.OrganizationRepository,
+	subRepo repository.SubscriptionRepository,
+	userRepo repository.UserRepository,
+	throttle dailythrottle.Service,
+) OrganizationService {
+	return &organizationService{
+		orgRepo:  orgRepo,
+		subRepo:  subRepo,
+		userRepo: userRepo,
+		throttle: throttle,
+	}
+}
+
+// Create creates a new organization and adds the user as owner
+func (s *organizationService) Create(ctx context.Context, userID uuid.UUID, name string) (*models.Organization, *errx.Error) {
+	// Ban-scope enforcement (migration 000045). Block new workspace
+	// creation when the admin's set the BanScopeOrgCreate bit, even
+	// if the user can otherwise log in.
+	if scope, scopeErr := s.userRepo.GetBanState(ctx, userID); scopeErr == nil {
+		if models.BanScope(scope).Has(models.BanScopeOrgCreate) {
+			return nil, errx.New(errx.Forbidden, "this account cannot create new workspaces")
+		}
+	}
+
+	// Daily creation throttle — caps "new workspaces per owner per
+	// day" so a script can't spawn 100 orgs from one user account.
+	// Scope is the owner uuid (not the org, which doesn't exist yet).
+	if s.throttle != nil {
+		if xerr := s.throttle.CheckAndIncrement(ctx, userID, dailythrottle.ResourceOrg, config.DailyThrottleNewOrgs); xerr != nil {
+			return nil, xerr
+		}
+	}
+
+	// Check organization limit
+	user, userErr := s.userRepo.GetUser(ctx, userID)
+	if userErr != nil {
+		sentry.CaptureException(userErr)
+		return nil, errx.New(errx.Internal, "failed to get user")
+	}
+	if user == nil {
+		return nil, errx.New(errx.NotFound, "user not found")
+	}
+
+	ownedCount, countErr := s.orgRepo.GetUserOwnedOrganizationCount(ctx, userID)
+	if countErr != nil {
+		sentry.CaptureException(countErr)
+		return nil, errx.New(errx.Internal, "failed to get organization count")
+	}
+	if ownedCount >= user.MaxOrganizations {
+		return nil, errx.New(errx.Forbidden, "maximum organization limit reached")
+	}
+
+	org := &models.Organization{
+		ID:          uuid.New(),
+		Name:        name,
+		OwnerUserID: userID,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// Generate slug from name
+	slug := generateSlug(name)
+	org.Slug = &slug
+
+	if err := s.orgRepo.Create(ctx, org); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to create organization")
+	}
+
+	// Add creator as owner member
+	now := time.Now()
+	member := &models.OrganizationMember{
+		ID:             uuid.New(),
+		OrganizationID: org.ID,
+		UserID:         userID,
+		Role:           string(models.RoleOwner),
+		Permissions:    models.RolePermissions[models.RoleOwner],
+		InvitedAt:      now,
+		AcceptedAt:     &now,
+	}
+
+	if err := s.orgRepo.AddMember(ctx, member); err != nil {
+		sentry.CaptureException(err)
+		// Rollback org creation
+		_ = s.orgRepo.Delete(ctx, org.ID)
+		return nil, errx.New(errx.Internal, "failed to add owner member")
+	}
+
+	// Seed the default roles (Admin/Manager/Viewer). Ordinary rows from here
+	// on: the owner can rename, reshape, or delete them. Best-effort — a
+	// failure leaves a usable org where roles can be created manually.
+	for _, seed := range models.DefaultSeedRoles() {
+		if err := s.orgRepo.CreateRole(ctx, &models.OrganizationRole{
+			ID:             uuid.New(),
+			OrganizationID: org.ID,
+			Name:           seed.Name,
+			Description:    seed.Description,
+			Color:          seed.Color,
+			Permissions:    seed.Permissions,
+		}); err != nil {
+			sentry.CaptureException(err)
+		}
+	}
+
+	return org, nil
+}
+
+// Get retrieves an organization by ID
+func (s *organizationService) Get(ctx context.Context, orgID uuid.UUID) (*models.Organization, *errx.Error) {
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get organization")
+	}
+	if org == nil {
+		return nil, errx.ErrNotFound
+	}
+	return org, nil
+}
+
+// GetBySlug retrieves an organization by slug
+func (s *organizationService) GetBySlug(ctx context.Context, slug string) (*models.Organization, *errx.Error) {
+	org, err := s.orgRepo.GetBySlug(ctx, slug)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get organization")
+	}
+	if org == nil {
+		return nil, errx.ErrNotFound
+	}
+	return org, nil
+}
+
+// Update updates an organization
+func (s *organizationService) Update(ctx context.Context, orgID uuid.UUID, req *models.UpdateOrganizationRequest) (*models.Organization, *errx.Error) {
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get organization")
+	}
+	if org == nil {
+		return nil, errx.ErrNotFound
+	}
+
+	if req.Name != nil {
+		org.Name = *req.Name
+	}
+	if req.Slug != nil {
+		// Validate slug uniqueness
+		existing, _ := s.orgRepo.GetBySlug(ctx, *req.Slug)
+		if existing != nil && existing.ID != orgID {
+			return nil, errx.New(errx.Conflict, "slug already in use")
+		}
+		org.Slug = req.Slug
+	}
+	if req.PresenceShowOnline != nil {
+		org.PresenceShowOnline = *req.PresenceShowOnline
+	}
+	if req.PresenceShowActivity != nil {
+		org.PresenceShowActivity = *req.PresenceShowActivity
+	}
+	if req.ProductDescription != nil {
+		org.ProductDescription = strings.TrimSpace(*req.ProductDescription)
+	}
+	if req.ICPNotes != nil {
+		org.ICPNotes = strings.TrimSpace(*req.ICPNotes)
+	}
+	if req.VoiceProfile != nil {
+		org.VoiceProfile = strings.TrimSpace(*req.VoiceProfile)
+	}
+	if req.InboxAgentEnabled != nil {
+		org.InboxAgentEnabled = *req.InboxAgentEnabled
+	}
+	if req.AssistantSharedHistory != nil {
+		org.AssistantSharedHistory = *req.AssistantSharedHistory
+	}
+
+	org.UpdatedAt = time.Now()
+
+	if err := s.orgRepo.Update(ctx, org); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to update organization")
+	}
+
+	return org, nil
+}
+
+// Delete deletes an organization
+func (s *organizationService) Delete(ctx context.Context, orgID uuid.UUID) *errx.Error {
+	if err := s.orgRepo.Delete(ctx, orgID); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to delete organization")
+	}
+	return nil
+}
+
+// GetUserOrganizations retrieves all organizations a user is a member of
+func (s *organizationService) GetUserOrganizations(ctx context.Context, userID uuid.UUID) ([]models.OrganizationMember, *errx.Error) {
+	members, err := s.orgRepo.GetUserOrganizations(ctx, userID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get user organizations")
+	}
+	return members, nil
+}
+
+// GetUserDefaultOrganization retrieves the user's default (first owned) organization
+func (s *organizationService) GetUserDefaultOrganization(ctx context.Context, userID uuid.UUID) (*models.Organization, *errx.Error) {
+	org, err := s.orgRepo.GetUserDefaultOrganization(ctx, userID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get default organization")
+	}
+	return org, nil
+}
+
+// GetMembers retrieves all members of an organization
+func (s *organizationService) GetMembers(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationMember, *errx.Error) {
+	members, err := s.orgRepo.GetMembers(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get members")
+	}
+	if err := s.orgRepo.HydrateMemberRoles(ctx, orgID, members); err != nil {
+		sentry.CaptureException(err)
+	}
+	return members, nil
+}
+
+// GetMembership retrieves a user's membership in an organization
+func (s *organizationService) GetMembership(ctx context.Context, orgID, userID uuid.UUID) (*models.OrganizationMember, *errx.Error) {
+	member, err := s.orgRepo.GetMember(ctx, orgID, userID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get membership")
+	}
+	return member, nil
+}
+
+// InviteMember invites a new member to the organization
+func (s *organizationService) InviteMember(ctx context.Context, orgID uuid.UUID, inviterID uuid.UUID, req *models.InviteMemberRequest) (*models.OrganizationInvitation, *errx.Error) {
+	// Refuse to mint an invitation the recipient could never redeem. With
+	// signups fully closed the invite link 403s, so issuing one only wastes
+	// the inviter's time.
+	if s.authPolicy != nil && !s.authPolicy.InvitesAllowed() {
+		return nil, errx.ErrRegistrationClosed
+	}
+
+	// Check member limit
+	canAdd, err := s.CanAddMember(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if !canAdd {
+		return nil, errx.New(errx.Forbidden, "team member limit reached")
+	}
+
+	// Check if user is already a member
+	// First, we need to check if there's already a user with this email
+	// For now, we'll just create the invitation
+
+	// Roles are data rows: every invite lands in one or more, snapshotting
+	// the effective (OR) permissions + primary name onto the invitation.
+	roleIDs, roles, permissions, xerr := s.resolveRoleSet(ctx, orgID, req.Resolved())
+	if xerr != nil {
+		return nil, xerr
+	}
+	// Assignment is an escalation surface: the inviter must hold every
+	// permission the role set grants (the owner's full mask passes trivially).
+	if xerr := s.validateActorHoldsPermissions(ctx, orgID, inviterID, permissions); xerr != nil {
+		return nil, xerr
+	}
+
+	role := roles[0].Name
+	roleID := &roles[0].ID
+
+	// Generate invitation token
+	token, tokErr := generateInvitationToken()
+	if tokErr != nil {
+		sentry.CaptureException(tokErr)
+		return nil, errx.New(errx.Internal, "failed to generate invitation token")
+	}
+
+	inv := &models.OrganizationInvitation{
+		ID:             uuid.New(),
+		OrganizationID: orgID,
+		Email:          strings.ToLower(req.Email),
+		Role:           role,
+		RoleID:         roleID,
+		Permissions:    permissions,
+		InvitedBy:      inviterID,
+		Token:          token,
+		ExpiresAt:      time.Now().Add(s.invitationTTL(ctx)),
+		CreatedAt:      time.Now(),
+	}
+
+	if err := s.orgRepo.CreateInvitation(ctx, inv); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to create invitation")
+	}
+	if err := s.orgRepo.SetInvitationRoles(ctx, inv.ID, roleIDs); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to attach roles")
+	}
+	inv.Roles = toMemberRoles(roles)
+
+	return inv, nil
+}
+
+// resolveRoleSet loads + validates a set of org role ids, returning the
+// deduped ids, the role rows, and the effective (OR) permission mask. At
+// least one valid role is required.
+func (s *organizationService) resolveRoleSet(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, []models.OrganizationRole, models.OrganizationPermission, *errx.Error) {
+	if len(ids) == 0 {
+		return nil, nil, 0, errx.New(errx.BadRequest, "at least one role is required")
+	}
+	var roles []models.OrganizationRole
+	var perms models.OrganizationPermission
+	for _, id := range ids {
+		role, err := s.orgRepo.GetRoleByID(ctx, orgID, id)
+		if err != nil {
+			sentry.CaptureException(err)
+			return nil, nil, 0, errx.New(errx.Internal, "failed to load role")
+		}
+		if role == nil {
+			return nil, nil, 0, errx.New(errx.BadRequest, "role not found")
+		}
+		roles = append(roles, *role)
+		perms |= role.Permissions
+	}
+	return ids, roles, perms, nil
+}
+
+func toMemberRoles(roles []models.OrganizationRole) []models.MemberRole {
+	out := make([]models.MemberRole, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, models.MemberRole{ID: r.ID, Name: r.Name, Color: r.Color})
+	}
+	return out
+}
+
+// AcceptInvitation accepts an invitation and adds the user as a member
+func (s *organizationService) AcceptInvitation(ctx context.Context, token string, userID uuid.UUID, email string) (*models.OrganizationMember, *errx.Error) {
+	inv, err := s.orgRepo.GetInvitationByToken(ctx, token)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get invitation")
+	}
+	if inv == nil {
+		return nil, errx.New(errx.NotFound, "invitation not found")
+	}
+	return s.acceptResolved(ctx, inv, userID, email)
+}
+
+// AcceptInvitationByID accepts an invitation the logged-in user found in their
+// own pending list (no token needed; the email-match check still gates it).
+func (s *organizationService) AcceptInvitationByID(ctx context.Context, invitationID, userID uuid.UUID, email string) (*models.OrganizationMember, *errx.Error) {
+	inv, err := s.orgRepo.GetInvitationByID(ctx, invitationID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get invitation")
+	}
+	if inv == nil {
+		return nil, errx.New(errx.NotFound, "invitation not found")
+	}
+	return s.acceptResolved(ctx, inv, userID, email)
+}
+
+// PreviewInvitation returns the safe public view for the /invite landing page.
+func (s *organizationService) PreviewInvitation(ctx context.Context, token string) (*models.InvitationPreview, *errx.Error) {
+	inv, err := s.orgRepo.GetInvitationByToken(ctx, token)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get invitation")
+	}
+	if inv == nil {
+		return nil, errx.New(errx.NotFound, "invitation not found")
+	}
+	preview := &models.InvitationPreview{
+		Email:   inv.Email,
+		Expired: inv.IsExpired(),
+	}
+	if inv.Organization != nil {
+		preview.OrganizationName = inv.Organization.Name
+		if inv.Organization.AvatarURL != nil {
+			preview.OrganizationAvatar = *inv.Organization.AvatarURL
+		}
+	}
+	if inviter, _ := s.userRepo.GetUser(ctx, inv.InvitedBy); inviter != nil {
+		preview.InviterName = strings.TrimSpace(inviter.FirstName + " " + inviter.LastName)
+	}
+	list := []models.OrganizationInvitation{*inv}
+	if err := s.orgRepo.HydrateInvitationRoles(ctx, list); err == nil {
+		preview.Roles = list[0].Roles
+	}
+	return preview, nil
+}
+
+// GetInvitationToken returns the secure token for one of the org's pending
+// invitations, so a team manager can copy a shareable /invite link.
+func (s *organizationService) GetInvitationToken(ctx context.Context, orgID, invitationID uuid.UUID) (string, *errx.Error) {
+	// The link is a bearer credential, so an operator can switch it off and
+	// require the invitation to arrive by email.
+	if !s.inviteLinksEnabled(ctx) {
+		return "", errx.New(errx.NotFound, "invite links are turned off on this instance; the invitation has to be delivered by email")
+	}
+
+	inv, err := s.orgRepo.GetInvitationByID(ctx, invitationID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return "", errx.New(errx.Internal, "failed to get invitation")
+	}
+	if inv == nil || inv.OrganizationID != orgID {
+		return "", errx.New(errx.NotFound, "invitation not found")
+	}
+	return inv.Token, nil
+}
+
+// acceptResolved performs the actual join given an already-loaded invitation.
+func (s *organizationService) acceptResolved(ctx context.Context, inv *models.OrganizationInvitation, userID uuid.UUID, email string) (*models.OrganizationMember, *errx.Error) {
+
+	// Verify email matches
+	if strings.ToLower(email) != strings.ToLower(inv.Email) {
+		return nil, errx.New(errx.Forbidden, "email does not match invitation")
+	}
+
+	// Check if invitation is expired
+	if inv.IsExpired() {
+		// Delete expired invitation
+		_ = s.orgRepo.DeleteInvitation(ctx, inv.ID)
+		return nil, errx.New(errx.BadRequest, "invitation has expired")
+	}
+
+	// Check if already a member
+	existing, _ := s.orgRepo.GetMember(ctx, inv.OrganizationID, userID)
+	if existing != nil {
+		_ = s.orgRepo.DeleteInvitation(ctx, inv.ID)
+		return existing, nil
+	}
+
+	// Re-resolve the invitation's role set at accept time: snapshots may be
+	// stale (edited) or dangling (deleted) since the invite was sent. Roles
+	// deleted in the meantime are dropped; at least one must survive.
+	invRoleIDs, ierr := s.orgRepo.GetInvitationRoles(ctx, inv.ID)
+	if ierr != nil {
+		sentry.CaptureException(ierr)
+		return nil, errx.New(errx.Internal, "failed to load invitation roles")
+	}
+	var liveRoleIDs []uuid.UUID
+	var primary *models.OrganizationRole
+	for _, id := range invRoleIDs {
+		role, rerr := s.orgRepo.GetRoleByID(ctx, inv.OrganizationID, id)
+		if rerr != nil {
+			sentry.CaptureException(rerr)
+			return nil, errx.New(errx.Internal, "failed to load role")
+		}
+		if role == nil {
+			continue
+		}
+		if primary == nil {
+			primary = role
+		}
+		liveRoleIDs = append(liveRoleIDs, id)
+	}
+	if len(liveRoleIDs) == 0 {
+		_ = s.orgRepo.DeleteInvitation(ctx, inv.ID)
+		return nil, errx.New(errx.BadRequest, "the roles for this invitation no longer exist — ask for a new invite")
+	}
+
+	// Add the membership row, then assign the full role set (which recomputes
+	// the effective permission snapshot).
+	now := time.Now()
+	member := &models.OrganizationMember{
+		ID:             uuid.New(),
+		OrganizationID: inv.OrganizationID,
+		UserID:         userID,
+		Role:           primary.Name,
+		RoleID:         &primary.ID,
+		Permissions:    primary.Permissions,
+		InvitedBy:      &inv.InvitedBy,
+		InvitedAt:      inv.CreatedAt,
+		AcceptedAt:     &now,
+	}
+	if err := s.orgRepo.AddMemberWithRoles(ctx, member, liveRoleIDs); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to add member")
+	}
+
+	// Delete the invitation
+	_ = s.orgRepo.DeleteInvitation(ctx, inv.ID)
+
+	if updated, _ := s.orgRepo.GetMember(ctx, inv.OrganizationID, userID); updated != nil {
+		member = updated
+	}
+	return member, nil
+}
+
+// UpdateMemberRole updates a member's role and permissions
+func (s *organizationService) UpdateMemberRole(ctx context.Context, orgID, actorID, memberUserID uuid.UUID, req *models.UpdateMemberRequest) (*models.OrganizationMember, *errx.Error) {
+	member, err := s.orgRepo.GetMember(ctx, orgID, memberUserID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get member")
+	}
+	if member == nil {
+		return nil, errx.New(errx.NotFound, "member not found")
+	}
+
+	// Cannot change owner's role
+	if member.Role == string(models.RoleOwner) {
+		return nil, errx.New(errx.Forbidden, "cannot modify owner role")
+	}
+
+	roleIDs, _, permissions, xerr := s.resolveRoleSet(ctx, orgID, req.Resolved())
+	if xerr != nil {
+		return nil, xerr
+	}
+	// Assignment is an escalation surface: the actor must hold every
+	// permission the new role set grants, and may not re-role themselves.
+	if actorID == memberUserID {
+		return nil, errx.New(errx.Forbidden, "you cannot change your own roles")
+	}
+	if xerr := s.validateActorHoldsPermissions(ctx, orgID, actorID, permissions); xerr != nil {
+		return nil, xerr
+	}
+
+	if err := s.orgRepo.SetMemberRoles(ctx, orgID, memberUserID, roleIDs); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to update roles")
+	}
+
+	updated, gerr := s.orgRepo.GetMember(ctx, orgID, memberUserID)
+	if gerr != nil {
+		sentry.CaptureException(gerr)
+		return nil, errx.New(errx.Internal, "failed to load member")
+	}
+	if updated != nil {
+		updated.Roles, _ = s.orgRepo.GetMemberRoles(ctx, orgID, memberUserID)
+	}
+	return updated, nil
+}
+
+// RemoveMember removes a member from the organization
+func (s *organizationService) RemoveMember(ctx context.Context, orgID, memberUserID uuid.UUID) *errx.Error {
+	member, err := s.orgRepo.GetMember(ctx, orgID, memberUserID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to get member")
+	}
+	if member == nil {
+		return errx.New(errx.NotFound, "member not found")
+	}
+
+	// Cannot remove owner
+	if member.Role == string(models.RoleOwner) {
+		return errx.New(errx.Forbidden, "cannot remove organization owner")
+	}
+
+	if err := s.orgRepo.RemoveMember(ctx, orgID, memberUserID); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to remove member")
+	}
+
+	return nil
+}
+
+// GetPendingInvitations retrieves all pending invitations for an organization
+func (s *organizationService) GetPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationInvitation, *errx.Error) {
+	invitations, err := s.orgRepo.GetPendingInvitations(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get invitations")
+	}
+	if err := s.orgRepo.HydrateInvitationRoles(ctx, invitations); err != nil {
+		sentry.CaptureException(err)
+	}
+	return invitations, nil
+}
+
+// GetUserPendingInvitations retrieves all pending invitations for a user
+func (s *organizationService) GetUserPendingInvitations(ctx context.Context, email string) ([]models.OrganizationInvitation, *errx.Error) {
+	invitations, err := s.orgRepo.GetUserPendingInvitations(ctx, email)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get invitations")
+	}
+	return invitations, nil
+}
+
+// CancelInvitation cancels a pending invitation
+func (s *organizationService) CancelInvitation(ctx context.Context, invitationID uuid.UUID) *errx.Error {
+	if err := s.orgRepo.DeleteInvitation(ctx, invitationID); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to cancel invitation")
+	}
+	return nil
+}
+
+// TransferOwnership transfers organization ownership
+func (s *organizationService) TransferOwnership(ctx context.Context, orgID, newOwnerUserID uuid.UUID) *errx.Error {
+	// Verify new owner is a member
+	member, err := s.orgRepo.GetMember(ctx, orgID, newOwnerUserID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to verify membership")
+	}
+	if member == nil {
+		return errx.New(errx.BadRequest, "new owner must be a member of the organization")
+	}
+
+	if err := s.orgRepo.TransferOwnership(ctx, orgID, newOwnerUserID); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to transfer ownership")
+	}
+
+	return nil
+}
+
+// HasPermission checks if a user has a specific permission
+func (s *organizationService) HasPermission(ctx context.Context, orgID, userID uuid.UUID, perm models.OrganizationPermission) (bool, *errx.Error) {
+	member, err := s.orgRepo.GetMember(ctx, orgID, userID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return false, errx.New(errx.Internal, "failed to check permission")
+	}
+	if member == nil {
+		return false, nil
+	}
+	return member.HasPermission(perm), nil
+}
+
+// RequirePermission checks permission and returns error if not granted
+func (s *organizationService) RequirePermission(ctx context.Context, orgID, userID uuid.UUID, perm models.OrganizationPermission) *errx.Error {
+	has, err := s.HasPermission(ctx, orgID, userID, perm)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return errx.ErrForbidden
+	}
+	return nil
+}
+
+// CanAddMember checks if the organization can add more members based on plan limits
+func (s *organizationService) CanAddMember(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error) {
+	limits, err := s.GetEffectiveLimits(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+
+	// No limit set = unlimited
+	if limits == nil || limits.MaxTeamMembers == nil {
+		return true, nil
+	}
+
+	count, xerr := s.orgRepo.GetMemberCount(ctx, orgID)
+	if xerr != nil {
+		sentry.CaptureException(xerr)
+		return false, errx.New(errx.Internal, "failed to get member count")
+	}
+
+	return count < *limits.MaxTeamMembers, nil
+}
+
+// CanAddCampaign checks if the organization can add more campaigns based on plan limits
+func (s *organizationService) CanAddCampaign(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error) {
+	limits, err := s.GetEffectiveLimits(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+
+	total, active, xerr := s.GetCampaignCounts(ctx, orgID)
+	if xerr != nil {
+		return false, xerr
+	}
+
+	// Check total campaign limit
+	if limits != nil && limits.MaxCampaigns != nil && total >= *limits.MaxCampaigns {
+		return false, nil
+	}
+
+	// Check active campaign limit
+	if limits != nil && limits.MaxActiveCampaigns != nil && active >= *limits.MaxActiveCampaigns {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// CanAddEmailAccount checks if the organization can add more email accounts based on plan limits
+func (s *organizationService) CanAddEmailAccount(ctx context.Context, orgID uuid.UUID) (bool, *errx.Error) {
+	limits, err := s.GetEffectiveLimits(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+
+	// No limit set = unlimited
+	if limits == nil || limits.MaxEmailAccounts == nil {
+		return true, nil
+	}
+
+	count, xerr := s.orgRepo.GetEmailAccountCount(ctx, orgID)
+	if xerr != nil {
+		sentry.CaptureException(xerr)
+		return false, errx.New(errx.Internal, "failed to get email account count")
+	}
+
+	return count < *limits.MaxEmailAccounts, nil
+}
+
+// GetCampaignCounts returns total and active campaign counts
+func (s *organizationService) GetCampaignCounts(ctx context.Context, orgID uuid.UUID) (total int, active int, err *errx.Error) {
+	t, a, xerr := s.orgRepo.GetCampaignCounts(ctx, orgID)
+	if xerr != nil {
+		sentry.CaptureException(xerr)
+		return 0, 0, errx.New(errx.Internal, "failed to get campaign counts")
+	}
+	return t, a, nil
+}
+
+// GetOrganizationLimits retrieves the organization's plan limits
+func (s *organizationService) GetOrganizationLimits(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimits, *errx.Error) {
+	sub, err := s.subRepo.GetByOrganizationID(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get subscription")
+	}
+	if sub == nil || sub.Plan == nil {
+		return nil, nil
+	}
+
+	return &models.OrganizationLimits{
+		MaxCampaigns:       sub.Plan.MaxCampaigns,
+		MaxActiveCampaigns: sub.Plan.MaxActiveCampaigns,
+		MaxTeamMembers:     sub.Plan.MaxTeamMembers,
+		MaxEmailAccounts:   sub.Plan.MaxEmailAccounts,
+		DailyCampaignLimit: sub.Plan.DailyCampaignLimit,
+	}, nil
+}
+
+// GetOrganizationCounts retrieves the organization's resource counts
+func (s *organizationService) GetOrganizationCounts(ctx context.Context, orgID uuid.UUID) (*models.OrganizationCounts, *errx.Error) {
+	total, active, err := s.orgRepo.GetCampaignCounts(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get campaign counts")
+	}
+
+	members, err := s.orgRepo.GetMemberCount(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get member count")
+	}
+
+	emails, err := s.orgRepo.GetEmailAccountCount(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get email account count")
+	}
+
+	contacts, err := s.orgRepo.GetContactCount(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to get contact count")
+	}
+
+	sentToday, _ := s.orgRepo.GetEmailsSentTodayCount(ctx, orgID)
+
+	return &models.OrganizationCounts{
+		TotalCampaigns:  total,
+		ActiveCampaigns: active,
+		TotalMembers:    members,
+		EmailAccounts:   emails,
+		TotalContacts:   contacts,
+		EmailsSentToday: sentToday,
+	}, nil
+}
+
+// CreateEnterpriseInquiry creates an enterprise inquiry
+func (s *organizationService) CreateEnterpriseInquiry(ctx context.Context, inquiry *models.EnterpriseInquiry) (*models.EnterpriseInquiry, *errx.Error) {
+	inquiry.ID = uuid.New()
+	inquiry.Status = string(models.EnterpriseInquiryStatusPending)
+	inquiry.CreatedAt = time.Now()
+
+	if err := s.orgRepo.CreateEnterpriseInquiry(ctx, inquiry); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to create enterprise inquiry")
+	}
+
+	return inquiry, nil
+}
+
+// Helper functions
+
+func generateSlug(name string) string {
+	// Simple slug generation - lowercase, replace spaces with dashes
+	slug := strings.ToLower(name)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	// Remove non-alphanumeric characters except dashes
+	var result strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	// Add random suffix to ensure uniqueness
+	suffix := make([]byte, 4)
+	rand.Read(suffix)
+	return result.String() + "-" + hex.EncodeToString(suffix)
+}
+
+func generateInvitationToken() (string, error) {
+	bytes := make([]byte, InvitationTokenLength)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// GetUserAdminPermissions retrieves the admin permissions for a user
+func (s *organizationService) GetUserAdminPermissions(ctx context.Context, userID uuid.UUID) (uint32, error) {
+	return s.orgRepo.GetUserAdminPermissions(ctx, userID)
+}
+
+// SearchOrganizationsForAdmin returns the paginated admin org listing.
+func (s *organizationService) SearchOrganizationsForAdmin(ctx context.Context, search *models.AdminOrgSearch) (*models.AdminOrgsResult, *errx.Error) {
+	result, err := s.orgRepo.SearchOrganizationsForAdmin(ctx, search)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to search organizations")
+	}
+	return result, nil
+}
+
+// GetOrganizationAdminDetail returns the per-org admin payload — the
+// list-shape row plus a counts snapshot and plan/subscription state.
+// Limits come from the org's plan via GetOrganizationLimits so admin
+// callers see the same numbers the in-app limit checks enforce.
+func (s *organizationService) GetOrganizationAdminDetail(ctx context.Context, orgID uuid.UUID) (*models.AdminOrgDetail, *errx.Error) {
+	detail, err := s.orgRepo.GetOrganizationAdminDetail(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load organization")
+	}
+	if detail == nil {
+		return nil, errx.New(errx.NotFound, "organization not found")
+	}
+
+	if limits, xerr := s.GetOrganizationLimits(ctx, orgID); xerr == nil {
+		detail.Limits = limits
+	}
+	if overrides, xerr := s.GetLimitOverrides(ctx, orgID); xerr == nil {
+		detail.Overrides = overrides
+	}
+	if effective, xerr := s.GetEffectiveLimits(ctx, orgID); xerr == nil {
+		detail.EffectiveLimits = effective
+	}
+	if counts, xerr := s.GetOrganizationCounts(ctx, orgID); xerr == nil {
+		detail.Counts = counts
+	}
+
+	return detail, nil
+}
+
+// GetOrganizationMembersForAdmin returns the members of an org with
+// joined user info for the admin panel.
+func (s *organizationService) GetOrganizationMembersForAdmin(ctx context.Context, orgID uuid.UUID) ([]models.AdminOrgMember, *errx.Error) {
+	members, err := s.orgRepo.GetOrganizationMembersForAdmin(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load members")
+	}
+	return members, nil
+}
+
+// GetLimitOverrides returns the override row for an org, or nil if no
+// admin has touched it yet.
+func (s *organizationService) GetLimitOverrides(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimitOverrides, *errx.Error) {
+	o, err := s.orgRepo.GetOrganizationLimitOverrides(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load limit overrides")
+	}
+	return o, nil
+}
+
+// SetLimitOverrides applies a partial update to the override row. The
+// caller is responsible for the audit log write — the service stays
+// audit-agnostic so it can be reused outside admin handlers later
+// (e.g. limit-request approval in slice 3).
+func (s *organizationService) SetLimitOverrides(ctx context.Context, orgID uuid.UUID, req *models.UpdateOrgOverridesRequest, grantedBy uuid.UUID) (*models.OrganizationLimitOverrides, *errx.Error) {
+	o, err := s.orgRepo.UpsertOrganizationLimitOverrides(ctx, orgID, req, grantedBy)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to write limit overrides")
+	}
+	return o, nil
+}
+
+// GetEffectiveLimits returns the limits the runtime actually enforces.
+// Resolution per field:
+//
+//  1. override > 0  → use override
+//  2. plan != nil   → use plan column
+//  3. otherwise     → fall back to the product-level hard cap
+//
+// Never returns nil values: even an "unlimited" plan is bounded by the
+// product hard caps in config/constants.go. Admins can raise individual
+// caps per-org by writing an override.
+func (s *organizationService) GetEffectiveLimits(ctx context.Context, orgID uuid.UUID) (*models.OrganizationLimits, *errx.Error) {
+	plan, err := s.GetOrganizationLimits(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	override, err := s.GetLimitOverrides(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	resolve := func(overrideVal int, planVal *int, hardCap int) *int {
+		if overrideVal > 0 {
+			v := overrideVal
+			return &v
+		}
+		if planVal != nil {
+			return planVal
+		}
+		v := hardCap
+		return &v
+	}
+
+	var ovMaxCampaigns, ovMaxActive, ovMaxMembers, ovMaxEmails, ovMaxContacts, ovDaily int
+	if override != nil {
+		ovMaxCampaigns = override.MaxCampaigns
+		ovMaxActive = override.MaxActiveCampaigns
+		ovMaxMembers = override.MaxTeamMembers
+		ovMaxEmails = override.MaxEmailAccounts
+		ovMaxContacts = override.MaxContacts
+		ovDaily = override.DailyCampaignLimit
+	}
+
+	var planLimits models.OrganizationLimits
+	if plan != nil {
+		planLimits = *plan
+	}
+
+	return &models.OrganizationLimits{
+		MaxCampaigns:       resolve(ovMaxCampaigns, planLimits.MaxCampaigns, config.HardCapCampaignsTotal),
+		MaxActiveCampaigns: resolve(ovMaxActive, planLimits.MaxActiveCampaigns, config.HardCapCampaignsActive),
+		MaxTeamMembers:     resolve(ovMaxMembers, planLimits.MaxTeamMembers, config.HardCapTeamMembers),
+		MaxEmailAccounts:   resolve(ovMaxEmails, planLimits.MaxEmailAccounts, config.HardCapMailboxes),
+		MaxContacts:        resolve(ovMaxContacts, planLimits.MaxContacts, config.HardCapContacts),
+		DailyCampaignLimit: resolve(ovDaily, planLimits.DailyCampaignLimit, config.HardCapDailyCampaignSends),
+	}, nil
+}
+
+// WebhookDispatchLimit derives the org's per-minute webhook/integration fan-out
+// cap from its effective plan limits. Plan-based: it scales with the org's
+// resolved mailbox allowance (since webhook volume tracks sending activity),
+// floored at a generous baseline so even free/no-plan orgs never trip the
+// throttle under normal use, and ceilinged so an "unlimited" plan stays bounded.
+// Fail-open generous: any error yields the base cap rather than blocking.
+func (s *organizationService) WebhookDispatchLimit(ctx context.Context, orgID uuid.UUID) int {
+	limit := config.WebhookDispatchBasePerMinute
+
+	eff, err := s.GetEffectiveLimits(ctx, orgID)
+	if err != nil || eff == nil {
+		return limit
+	}
+	if eff.MaxEmailAccounts != nil {
+		if scaled := *eff.MaxEmailAccounts * config.WebhookDispatchPerMailboxPerMinute; scaled > limit {
+			limit = scaled
+		}
+	}
+	if limit > config.WebhookDispatchMaxPerMinute {
+		limit = config.WebhookDispatchMaxPerMinute
+	}
+	return limit
+}
+
+// limitFieldUpdater maps a request's `field` string onto the override
+// column it should write. Keeping this map adjacent to the request flow
+// makes it obvious what's user-requestable; adding a new field is two
+// lines here plus the override model.
+var limitFieldUpdater = map[string]func(req *models.UpdateOrgOverridesRequest, v int){
+	"max_campaigns":        func(r *models.UpdateOrgOverridesRequest, v int) { r.MaxCampaigns = &v },
+	"max_active_campaigns": func(r *models.UpdateOrgOverridesRequest, v int) { r.MaxActiveCampaigns = &v },
+	"max_team_members":     func(r *models.UpdateOrgOverridesRequest, v int) { r.MaxTeamMembers = &v },
+	"max_email_accounts":   func(r *models.UpdateOrgOverridesRequest, v int) { r.MaxEmailAccounts = &v },
+	"max_contacts":         func(r *models.UpdateOrgOverridesRequest, v int) { r.MaxContacts = &v },
+	"daily_campaign_limit": func(r *models.UpdateOrgOverridesRequest, v int) { r.DailyCampaignLimit = &v },
+}
+
+// limitFieldEffective extracts the currently-enforced value for a field
+// off the effective-limits resolver result. Used at submission time so
+// the stored row records what the user was looking at when they asked.
+func limitFieldEffective(field string, eff *models.OrganizationLimits) int {
+	if eff == nil {
+		return 0
+	}
+	get := func(p *int) int {
+		if p == nil {
+			return 0
+		}
+		return *p
+	}
+	switch field {
+	case "max_campaigns":
+		return get(eff.MaxCampaigns)
+	case "max_active_campaigns":
+		return get(eff.MaxActiveCampaigns)
+	case "max_team_members":
+		return get(eff.MaxTeamMembers)
+	case "max_email_accounts":
+		return get(eff.MaxEmailAccounts)
+	case "max_contacts":
+		return get(eff.MaxContacts)
+	case "daily_campaign_limit":
+		return get(eff.DailyCampaignLimit)
+	}
+	return 0
+}
+
+func (s *organizationService) SubmitLimitIncreaseRequest(ctx context.Context, orgID, submitterID uuid.UUID, req *models.CreateLimitIncreaseRequest) (*models.LimitIncreaseRequest, *errx.Error) {
+	if _, ok := limitFieldUpdater[req.Field]; !ok {
+		return nil, errx.New(errx.BadRequest, "unknown field")
+	}
+	if req.Requested <= 0 {
+		return nil, errx.New(errx.BadRequest, "requested value must be positive")
+	}
+
+	// Membership check — only members of the org can submit requests
+	// on its behalf. Owner check happens at the per-org-permission
+	// layer for org-config writes; for limit requests any active
+	// member is acceptable.
+	if _, xerr := s.GetMembership(ctx, orgID, submitterID); xerr != nil {
+		return nil, xerr
+	}
+
+	effective, xerr := s.GetEffectiveLimits(ctx, orgID)
+	if xerr != nil {
+		return nil, xerr
+	}
+	current := limitFieldEffective(req.Field, effective)
+	if req.Requested <= current {
+		return nil, errx.New(errx.BadRequest, "requested value must exceed current effective limit")
+	}
+
+	lr := &models.LimitIncreaseRequest{
+		ID:               uuid.New(),
+		OrganizationID:   orgID,
+		Field:            req.Field,
+		CurrentEffective: current,
+		Requested:        req.Requested,
+		Reason:           req.Reason,
+		Status:           models.LimitRequestStatusPending,
+		SubmittedBy:      submitterID,
+	}
+
+	if err := s.orgRepo.CreateLimitRequest(ctx, lr); err != nil {
+		// The (org, field) WHERE status='pending' unique index trips
+		// when the same workspace already has an open request for the
+		// same resource. Surface as 409 so the dashboard can render
+		// "you already have a pending request" instead of a generic
+		// 500.
+		if strings.Contains(err.Error(), "uq_limit_requests_one_pending_per_field") {
+			return nil, errx.New(errx.Conflict, "a pending request already exists for this field")
+		}
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to submit request")
+	}
+	return lr, nil
+}
+
+func (s *organizationService) ListLimitRequestsForOrg(ctx context.Context, orgID uuid.UUID) ([]models.LimitIncreaseRequest, *errx.Error) {
+	rows, err := s.orgRepo.ListLimitRequestsForOrg(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load requests")
+	}
+	return rows, nil
+}
+
+// CancelLimitRequest lets the original submitter walk back a pending
+// request. Approved / rejected rows are immutable — they survive as
+// the audit record of what was decided and when.
+func (s *organizationService) CancelLimitRequest(ctx context.Context, id, userID uuid.UUID) *errx.Error {
+	lr, err := s.orgRepo.GetLimitRequest(ctx, id)
+	if err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to load request")
+	}
+	if lr == nil {
+		return errx.New(errx.NotFound, "request not found")
+	}
+	if lr.SubmittedBy != userID {
+		return errx.ErrForbidden
+	}
+	if lr.Status != models.LimitRequestStatusPending {
+		return errx.New(errx.BadRequest, "only pending requests can be cancelled")
+	}
+	if err := s.orgRepo.UpdateLimitRequestStatus(ctx, id, models.LimitRequestStatusCancelled, userID, ""); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to cancel request")
+	}
+	return nil
+}
+
+func (s *organizationService) AdminListLimitRequests(ctx context.Context, search *models.AdminLimitRequestSearch) (*models.AdminLimitRequestsResult, *errx.Error) {
+	// field/status are free-form strings on the wire (field has no DB enum), so
+	// validate them here rather than relying on query binding.
+	if search.Field != "" {
+		if _, ok := limitFieldUpdater[search.Field]; !ok {
+			return nil, errx.New(errx.BadRequest, "invalid field filter")
+		}
+	}
+	switch search.Status {
+	case "", "all",
+		string(models.LimitRequestStatusPending),
+		string(models.LimitRequestStatusApproved),
+		string(models.LimitRequestStatusRejected),
+		string(models.LimitRequestStatusCancelled):
+	default:
+		return nil, errx.New(errx.BadRequest, "invalid status filter")
+	}
+
+	result, err := s.orgRepo.ListLimitRequestsForAdmin(ctx, search)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load limit requests")
+	}
+	return result, nil
+}
+
+// ApproveLimitRequest stamps the row and writes the corresponding
+// override column via SetLimitOverrides — same write path the admin
+// uses for direct overrides, so the granted_by audit trail is unified.
+func (s *organizationService) ApproveLimitRequest(ctx context.Context, id, reviewerID uuid.UUID, notes string) (*models.LimitIncreaseRequest, *errx.Error) {
+	lr, err := s.orgRepo.GetLimitRequest(ctx, id)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load request")
+	}
+	if lr == nil {
+		return nil, errx.New(errx.NotFound, "request not found")
+	}
+	if lr.Status != models.LimitRequestStatusPending {
+		return nil, errx.New(errx.BadRequest, "only pending requests can be approved")
+	}
+
+	updater, ok := limitFieldUpdater[lr.Field]
+	if !ok {
+		return nil, errx.New(errx.Internal, "request references an unknown field")
+	}
+
+	override := &models.UpdateOrgOverridesRequest{}
+	updater(override, lr.Requested)
+	if notes != "" {
+		notesCopy := "approved request " + lr.ID.String() + ": " + notes
+		override.Notes = &notesCopy
+	}
+	if _, xerr := s.SetLimitOverrides(ctx, lr.OrganizationID, override, reviewerID); xerr != nil {
+		return nil, xerr
+	}
+
+	if err := s.orgRepo.UpdateLimitRequestStatus(ctx, id, models.LimitRequestStatusApproved, reviewerID, notes); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to mark request approved")
+	}
+	lr.Status = models.LimitRequestStatusApproved
+	lr.ReviewedBy = &reviewerID
+	lr.ReviewNotes = notes
+	return lr, nil
+}
+
+func (s *organizationService) RejectLimitRequest(ctx context.Context, id, reviewerID uuid.UUID, notes string) (*models.LimitIncreaseRequest, *errx.Error) {
+	lr, err := s.orgRepo.GetLimitRequest(ctx, id)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load request")
+	}
+	if lr == nil {
+		return nil, errx.New(errx.NotFound, "request not found")
+	}
+	if lr.Status != models.LimitRequestStatusPending {
+		return nil, errx.New(errx.BadRequest, "only pending requests can be rejected")
+	}
+	if err := s.orgRepo.UpdateLimitRequestStatus(ctx, id, models.LimitRequestStatusRejected, reviewerID, notes); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to mark request rejected")
+	}
+	lr.Status = models.LimitRequestStatusRejected
+	lr.ReviewedBy = &reviewerID
+	lr.ReviewNotes = notes
+	return lr, nil
+}
+
+// MaxCustomRolesPerOrg caps role sprawl per workspace.
+const MaxCustomRolesPerOrg = 25
+
+// validateRolePermissions enforces the two safety rules for custom roles:
+// transfer-ownership can never be delegated through a role, and an actor can
+// only put permissions into a role that they hold themselves (no privilege
+// escalation by minting a stronger role and self-assigning a teammate).
+func (s *organizationService) validateRolePermissions(ctx context.Context, orgID, actorID uuid.UUID, perms models.OrganizationPermission) *errx.Error {
+	if perms&models.PermTransferOwnership != 0 {
+		return errx.New(errx.BadRequest, "custom roles cannot include ownership transfer")
+	}
+	return s.validateActorHoldsPermissions(ctx, orgID, actorID, perms)
+}
+
+// validateActorHoldsPermissions rejects granting (via role create/edit OR
+// assignment) any permission the actor does not hold themselves.
+func (s *organizationService) validateActorHoldsPermissions(ctx context.Context, orgID, actorID uuid.UUID, perms models.OrganizationPermission) *errx.Error {
+	actor, err := s.orgRepo.GetMember(ctx, orgID, actorID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to load member")
+	}
+	if actor == nil {
+		return errx.New(errx.Forbidden, "not a member")
+	}
+	if perms&^actor.Permissions != 0 {
+		return errx.New(errx.Forbidden, "you cannot grant permissions you do not hold")
+	}
+	return nil
+}
+
+func validateRoleName(name string) (string, *errx.Error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 50 {
+		return "", errx.New(errx.BadRequest, "role name must be 1-50 characters")
+	}
+	if models.IsReservedRoleName(name) {
+		return "", errx.New(errx.BadRequest, "that name is reserved for a built-in role")
+	}
+	return name, nil
+}
+
+func (s *organizationService) ListRoles(ctx context.Context, orgID uuid.UUID) ([]models.OrganizationRole, *errx.Error) {
+	roles, err := s.orgRepo.ListRoles(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to list roles")
+	}
+	if roles == nil {
+		roles = []models.OrganizationRole{}
+	}
+	return roles, nil
+}
+
+func (s *organizationService) CreateRole(ctx context.Context, orgID, actorID uuid.UUID, req *models.CreateOrganizationRoleRequest) (*models.OrganizationRole, *errx.Error) {
+	name, xerr := validateRoleName(req.Name)
+	if xerr != nil {
+		return nil, xerr
+	}
+	perms := models.OrganizationPermission(req.Permissions)
+	if xerr := s.validateRolePermissions(ctx, orgID, actorID, perms); xerr != nil {
+		return nil, xerr
+	}
+
+	count, err := s.orgRepo.CountRoles(ctx, orgID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to count roles")
+	}
+	if count >= MaxCustomRolesPerOrg {
+		return nil, errx.New(errx.Forbidden, "custom role limit reached")
+	}
+
+	color := strings.TrimSpace(req.Color)
+	if color != "" && !crypt.IsValidHexColor(color) {
+		return nil, errx.New(errx.BadRequest, "color must be a hex value like #0ea5e9")
+	}
+
+	role := &models.OrganizationRole{
+		ID:             uuid.New(),
+		OrganizationID: orgID,
+		Name:           name,
+		Description:    strings.TrimSpace(req.Description),
+		Color:          color,
+		Permissions:    perms,
+	}
+	if err := s.orgRepo.CreateRole(ctx, role); err != nil {
+		// Unique (org, name) violation is the only expected failure here.
+		return nil, errx.New(errx.BadRequest, "a role with that name already exists")
+	}
+	return role, nil
+}
+
+func (s *organizationService) UpdateRole(ctx context.Context, orgID, actorID, roleID uuid.UUID, req *models.UpdateOrganizationRoleRequest) (*models.OrganizationRole, *errx.Error) {
+	role, err := s.orgRepo.GetRoleByID(ctx, orgID, roleID)
+	if err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to load role")
+	}
+	if role == nil {
+		return nil, errx.New(errx.NotFound, "role not found")
+	}
+
+	if req.Name != nil {
+		name, xerr := validateRoleName(*req.Name)
+		if xerr != nil {
+			return nil, xerr
+		}
+		role.Name = name
+	}
+	if req.Description != nil {
+		role.Description = strings.TrimSpace(*req.Description)
+	}
+	if req.Color != nil {
+		color := strings.TrimSpace(*req.Color)
+		if color != "" && !crypt.IsValidHexColor(color) {
+			return nil, errx.New(errx.BadRequest, "color must be a hex value like #0ea5e9")
+		}
+		role.Color = color
+	}
+	if req.Permissions != nil {
+		perms := models.OrganizationPermission(*req.Permissions)
+		if xerr := s.validateRolePermissions(ctx, orgID, actorID, perms); xerr != nil {
+			return nil, xerr
+		}
+		role.Permissions = perms
+	}
+
+	// Write-through: assigned members pick up the new name + permissions
+	// atomically (their effective access changes live via the audit spine).
+	if err := s.orgRepo.UpdateRole(ctx, role); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.New(errx.Internal, "failed to update role")
+	}
+	return role, nil
+}
+
+func (s *organizationService) DeleteRole(ctx context.Context, orgID, actorID, roleID uuid.UUID) *errx.Error {
+	// Deleting a role strips its permissions from everyone holding it, so the
+	// actor must hold those permissions themselves (symmetry with the grant
+	// paths — otherwise a team-manager could de-privilege admins by deleting
+	// the Admin role).
+	role, rerr := s.orgRepo.GetRoleByID(ctx, orgID, roleID)
+	if rerr != nil {
+		sentry.CaptureException(rerr)
+		return errx.New(errx.Internal, "failed to load role")
+	}
+	if role == nil {
+		return nil // already gone — idempotent
+	}
+	if xerr := s.validateActorHoldsPermissions(ctx, orgID, actorID, role.Permissions); xerr != nil {
+		return xerr
+	}
+	if err := s.orgRepo.DeleteRole(ctx, orgID, roleID); err != nil {
+		sentry.CaptureException(err)
+		return errx.New(errx.Internal, "failed to delete role")
+	}
+	return nil
+}

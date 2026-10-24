@@ -1,0 +1,82 @@
+---
+title: Integrations
+description: "Connect third-party tools over OAuth and send data out via webhooks."
+---
+
+Integrations push Dakiya Mail events into the rest of your stack: a reply lands, a meeting is booked, an email bounces, and your CRM, chat channel, or automation tool hears about it.
+
+The Integrations page is a searchable directory with your existing connections along the top. State stays live, so a connection needing reauthorization surfaces without a refresh.
+
+## Supported providers
+
+| Provider | Category | Connect | What it does |
+| --- | --- | --- | --- |
+| HubSpot | CRM | one-click OAuth | Create or update a contact, log the reply as a note |
+| Salesforce | CRM | one-click OAuth | Upsert a contact on reply or on demand |
+| Pipedrive | CRM | one-click OAuth | Upsert a person on reply or on demand |
+| Close | CRM | API key | Upsert a lead on reply or on demand |
+| Zapier, Make, n8n | Automation | Dakiya Mail API key | Fan events to that tool's webhook URL |
+| Slack | Notifications | one-click OAuth | Ping a channel on reply, bounce, or deliverability dips |
+| Discord | Notifications | webhook URL | Ping a server channel on reply, bounce, or warmup health |
+| Calendly, Cal.com | Meetings | minted inbound URL | Track booked, rescheduled, and canceled calls |
+
+Three connect styles appear on the catalog cards: `one-click` OAuth, `api_key` for providers without an OAuth app, and `webhook` for a minted inbound URL or a pasted channel URL.
+
+<Callout type="info" title="OAuth providers cannot be connected with a pasted key">
+You must start the authorize flow; pasting credentials for an OAuth provider is rejected so a token is never stored the wrong way. An expired or revoked token moves the connection to "reconnect required" and one click fixes it.
+</Callout>
+
+<Callout type="info" title="Automation tools store no secret">
+Zapier, Make, and n8n connect in one click with nothing stored on the integration. Dakiya Mail sends events to the webhook URL you configure there; when they call back into Dakiya Mail they use a scoped API key you create.
+</Callout>
+
+**Credentials** (OAuth tokens, pasted keys, webhook URLs) are sealed with envelope encryption before touching the database. Only non-secret display details like an account name or Salesforce instance host are stored in the clear, so the dashboard can label the connection.
+
+## CRM field mappings
+
+A mapping decides how a Dakiya Mail contact projects onto provider fields. Every connection ships a sensible default:
+
+| Provider | Default mapping |
+|----------|-----------------|
+| HubSpot | `email`, `firstname`, `lastname`, `company`, `phone` |
+| Salesforce | `Email`, `FirstName`, `LastName`, `Phone` |
+| Pipedrive | `name`, `email`, `phone` (a person) |
+| Close | `name`, `email`, `phone`, `company` (a lead) |
+
+Override per connection: each row pairs a Dakiya Mail source field with a destination name and can apply a `uppercase`, `lowercase`, or `trim` transform, or write a fixed `static` value. Custom contact fields are addressed as `custom:your_key`, and a static value can include event variables like `{{.company}}`.
+
+Mappings resolve by specificity: provider defaults, then your connection map, then per-automation overrides, with the most specific winning.
+
+<Callout type="info" title="Blank values are not written">
+Empty values are dropped before the upsert, so a missing first name never blanks an existing one in your CRM.
+</Callout>
+
+## Webhook delivery
+
+Outbound events are **HMAC-SHA256 signed** so receivers can verify them. Reveal the connection's `whsec_` signing secret in its settings and check the signature header on every request. The signed body carries a stable delivery id, event type, version, timestamp, and full event data.
+
+URLs are validated before storage under the same policy as customer webhooks: the scheme must be `https` and the host must be publicly routable, with no localhost, loopback, private, or link-local addresses. This blocks requests aimed at internal services. Only development or self-hosted setups can opt out with `DAKIYA_ALLOW_UNSAFE_WEBHOOK_URLS=true`.
+
+<Callout type="info" title="Send a test event">
+**Send test event** fires a synthetic payload through the real delivery path, signed exactly like production, so you can verify your signature check first. CRM upserts are skipped during a test, so nothing junk lands in your CRM.
+</Callout>
+
+**Inbound webhooks** work the other way: Calendly and Cal.com call into a URL Dakiya Mail mints for you, landing booked, rescheduled, and canceled calls on the contact timeline in real time. Rotate the secret from connection settings if exposed.
+
+## Feeding automations
+
+Integrations are most useful as the actions at the end of an [automation](/guides/automations/): post to Slack or Discord, upsert into a CRM, or fan out to Zapier, Make, n8n, or any signed webhook.
+
+The most actionable events are available as triggers: reply received (with intent), email bounced, unsubscribed, meeting booked, rescheduled, or canceled, warmup health changed, and deliverability complaint.
+
+Actions run in the background, so a slow third party never blocks the event that triggered it. Failures are recorded against the connection's health and visible in its recent activity rather than retried forever or silently lost.
+
+You can filter when an action runs, commonly firing only on a `positive` reply or above a minimum classifier confidence. Beyond events, you can push a batch of contacts into a connected CRM on demand, with each record reporting its own result.
+
+## Next steps
+
+<Cards>
+  <Card title="Automations" href="/guides/automations/" />
+  <Card title="Personalization & expressions" href="/guides/expressions/" />
+  <Card title="Deliverability" href="/guides/deliverability/" />
+</Cards>

@@ -1,0 +1,513 @@
+# Dakiya Mail: truly local, no-cloud self-host stack.
+#
+#   docker compose up --build
+#
+# Brings up the whole platform with NO cloud account of any kind: no AWS, no
+# GCP, no Stripe, no Kafka, no Astra. One command, everything local:
+#
+#   Postgres   relational store
+#   Redis      cache + realtime pub/sub bridge
+#   NATS       event bus (JetStream); a single ~15MB binary, not Kafka+ZK+SR
+#   backend    API (:8080), applies migrations on boot
+#   consumer   event consumer
+#   worker     send/sync executor (add more for scale; see docs)
+#   tracking   open/click pixels (:3000)
+#   realtime   websocket fanout (:4000)
+#   web        dashboard (:5173)      admin: control panel (:5174)
+#   mailpit    local SMTP sink + web UI (:18025) for testing outbound mail
+#
+# Providers (all local): EVENTBUS_PROVIDER=nats, KMS_PROVIDER=local,
+# BLOB_PROVIDER=filesystem, TASKS_PROVIDER=local, CODEC_PROVIDER=json,
+# BILLING_PROVIDER=none, CAPTCHA_PROVIDER=none, PUBSUB_ENABLED=false.
+#
+# ONE .env NEXT TO THIS FILE CONFIGURES EVERYTHING. Every variable below is
+# ${VAR:-default}, so an absent or empty .env still boots the full no-cloud
+# stack and you set only what you want to change. Copy deploy/config/env.example
+# to .env as a starting point.
+#
+# For a real deployment set at least:
+#   AUTH_SECRET, KMS_LOCAL_MASTER_KEY (base64 32 bytes; `make gen-key`),
+#   CREDENTIALS_ENCRYPTION_KEY (64 hex), INTERNAL_API_TOKEN, SECRET_KEY_BASE,
+#   plus BOX_GOOGLE_* / BOX_OUTLOOK_* to connect Gmail/Microsoft mailboxes.
+#
+# LOSING KMS_LOCAL_MASTER_KEY OR CREDENTIALS_ENCRYPTION_KEY IS UNRECOVERABLE:
+# every stored mailbox credential is sealed with them. Back them up.
+#
+# To run on Kafka + S3 instead, set the provider vars above and rebuild the Go
+# images with --build-arg GO_TAGS=kafka (tracking: --build-arg CARGO_FEATURES=kafka).
+
+# Everything below is overridable from a single .env next to this file. The
+# defaults are the no-cloud stack, so an empty .env still boots; set only what
+# you want to change. See docs.dakiyamail.com/development/deployment-guide/.
+x-selfhost-env: &selfhost-env
+  APP_ENV: ${APP_ENV:-dev}
+  AWS_CONFIG_ENABLED: ${AWS_CONFIG_ENABLED:-false}
+  # Both are read by the published-default-secrets check. Without the
+  # passthrough it could neither detect SECRET_KEY_BASE nor be overridden.
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:-local-development-secret-key-base-minimum-64-characters-for-phoenix}
+  ALLOW_INSECURE_DEFAULTS: ${ALLOW_INSECURE_DEFAULTS:-}
+
+  # Event bus + serialization. Kafka needs images built with GO_TAGS=kafka.
+  EVENTBUS_PROVIDER: ${EVENTBUS_PROVIDER:-nats}
+  NATS_URL: ${NATS_URL:-nats://nats:4222}
+  CODEC_PROVIDER: ${CODEC_PROVIDER:-json}
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-}
+  KAFKA_SASL_USERNAME: ${KAFKA_SASL_USERNAME:-}
+  KAFKA_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:-}
+  SCHEMA_REGISTRY_URL: ${SCHEMA_REGISTRY_URL:-}
+
+  # Encryption. Back up both keys; losing them is unrecoverable.
+  KMS_PROVIDER: ${KMS_PROVIDER:-local}
+  KMS_LOCAL_MASTER_KEY: ${KMS_LOCAL_MASTER_KEY:-Xr0JA7gqF2POy29a7MRByyqddivTNt8WOyKsOXklazk=}
+  KMS_AWS_KEY_ID: ${KMS_AWS_KEY_ID:-}
+  CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+
+  # Blob storage. s3 also needs BLOB_BUCKET + the AWS_* values below.
+  BLOB_PROVIDER: ${BLOB_PROVIDER:-filesystem}
+  BLOB_FS_ROOT: ${BLOB_FS_ROOT:-/data/blobs}
+  BLOB_BUCKET: ${BLOB_BUCKET:-}
+  BLOB_PUBLIC_BASE_URL: ${BLOB_PUBLIC_BASE_URL:-${API_PUBLIC_URL:-http://${PUBLIC_HOST:-localhost}:8080}/public}
+  AWS_REGION: ${AWS_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_ENDPOINT_URL_S3: ${AWS_ENDPOINT_URL_S3:-}
+
+  TASKS_PROVIDER: ${TASKS_PROVIDER:-local}
+  PUBSUB_ENABLED: ${PUBSUB_ENABLED:-false}
+
+  # Billing. stripe requires all three keys or the backend exits at boot.
+  BILLING_PROVIDER: ${BILLING_PROVIDER:-none}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+
+  # Captcha. Set both to turn Turnstile on.
+  CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-none}
+  TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+
+  # Deployment mode. Picks the auth defaults below; every one stays
+  # individually overridable.
+  DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self_hosted}
+
+  # ── Platform email (login codes, resets, invitations, digests) ──────────
+  #
+  # log is the default so a fresh install can complete first login with no
+  # relay: the code is printed to `docker compose logs backend`. Switch to smtp
+  # before anyone else uses this instance.
+  #
+  #   MAIL_TRANSPORT=smtp
+  #   SMTP_HOST=smtp.example.com  SMTP_USERNAME=...  SMTP_PASSWORD=...
+  #
+  # SMTP_SECURITY is starttls (587), tls (implicit, 465) or none (a local sink
+  # only). The port defaults per mode, and credentials are never sent over an
+  # unencrypted connection.
+  MAIL_TRANSPORT: ${MAIL_TRANSPORT:-log}
+  EMAIL_NAME: ${EMAIL_NAME:-Dakiya Mail}
+  EMAIL_ADDRESS: ${EMAIL_ADDRESS:-noreply@localhost}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_SECURITY: ${SMTP_SECURITY:-}
+  SMTP_AUTH: ${SMTP_AUTH:-auto}
+  SMTP_EHLO_NAME: ${SMTP_EHLO_NAME:-}
+  SMTP_TLS_INSECURE_SKIP_VERIFY: ${SMTP_TLS_INSECURE_SKIP_VERIFY:-false}
+
+  # ── Auth policy ────────────────────────────────────────────────────────
+  #
+  # AUTH_LOGIN_CODE is always, new_device or off. Self-host defaults to off:
+  # emailing a code on every login makes the relay a single point of failure
+  # for all authentication, and neither NIST SP 800-63B nor OWASP ASVS counts
+  # email as a second factor. TOTP and passkeys both remain available.
+  AUTH_LOGIN_CODE: ${AUTH_LOGIN_CODE:-}
+  REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-}
+  # true | false | invite_only. Self-host defaults to invite_only, with a
+  # first-launch exemption so the very first signup always works: while the
+  # users table is EMPTY any signup is allowed, and seeding spends that for
+  # good. invite_only does not mean "closed": an invitation link creates the
+  # account, because the link carries the token that permits the signup. A
+  # stranger without one cannot register. true closes both paths, and members
+  # can no longer mint invitations either.
+  # https://docs.dakiyamail.com/development/accounts-and-access/
+  DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-}
+  DISABLE_PASSWORD_LOGIN: ${DISABLE_PASSWORD_LOGIN:-false}
+  # Lets a verified identity-provider assertion create an account regardless of
+  # DISABLE_REGISTRATION. Off by default, so configuring OIDC never silently
+  # reopens signup.
+  SSO_AUTO_PROVISION: ${SSO_AUTO_PROVISION:-}
+  AUTH_IP_RATE_LIMIT: ${AUTH_IP_RATE_LIMIT:-60}
+  # CIDRs allowed to set X-Forwarded-For. Empty trusts nothing, which is
+  # correct for a directly exposed backend; set it when you run a proxy.
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+
+  # First owner, read only while the users table is empty. Leave unset and the
+  # backend prints a single-use setup link to its logs instead.
+  DAKIYA_BOOTSTRAP_EMAIL: ${DAKIYA_BOOTSTRAP_EMAIL:-}
+  DAKIYA_BOOTSTRAP_PASSWORD_HASH: ${DAKIYA_BOOTSTRAP_PASSWORD_HASH:-}
+  DAKIYA_BOOTSTRAP_PASSWORD: ${DAKIYA_BOOTSTRAP_PASSWORD:-}
+  DAKIYA_BOOTSTRAP_ORG: ${DAKIYA_BOOTSTRAP_ORG:-}
+
+  # Generic OpenID Connect. The one sign-in path with no mail dependency, so
+  # it is the recommended posture for a deployment with no relay.
+  OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
+  OIDC_SCOPES: ${OIDC_SCOPES:-}
+  OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS:-}
+  OIDC_DEFAULT_ORG: ${OIDC_DEFAULT_ORG:-}
+  OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-}
+
+  # Transactional email branding. A self-hosted install should not send mail
+  # attributed to someone else's company.
+  EMAIL_BRAND_NAME: ${EMAIL_BRAND_NAME:-}
+  EMAIL_BRAND_LEGAL_ENTITY: ${EMAIL_BRAND_LEGAL_ENTITY:-}
+  EMAIL_BRAND_COMPANY_NUMBER: ${EMAIL_BRAND_COMPANY_NUMBER:-}
+  EMAIL_BRAND_PLACE_OF_REG: ${EMAIL_BRAND_PLACE_OF_REG:-}
+  EMAIL_BRAND_ADDRESS: ${EMAIL_BRAND_ADDRESS:-}
+  EMAIL_BRAND_WEBSITE_URL: ${EMAIL_BRAND_WEBSITE_URL:-}
+  EMAIL_BRAND_SUPPORT_EMAIL: ${EMAIL_BRAND_SUPPORT_EMAIL:-}
+  EMAIL_BRAND_TERMS_URL: ${EMAIL_BRAND_TERMS_URL:-}
+  EMAIL_BRAND_PRIVACY_URL: ${EMAIL_BRAND_PRIVACY_URL:-}
+
+  PRIMARY_DB: ${PRIMARY_DB:-postgres://dakiya:dakiya@postgres:5432/dakiya_dev?sslmode=disable}
+  REDIS: ${REDIS:-redis://redis:6379}
+  AUTH_SECRET: ${AUTH_SECRET:-local-dev-auth-secret-minimum-32-characters-long}
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-local-dev-internal-token}
+
+  # AI assistant. Omit AI_PROVIDER to run with AI off (endpoints return 503).
+  AI_PROVIDER: ${AI_PROVIDER:-}
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-}
+  AI_MODEL_TRIAL: ${AI_MODEL_TRIAL:-}
+  AI_MODEL_PAID: ${AI_MODEL_PAID:-}
+  AI_BASE_URL: ${AI_BASE_URL:-}
+  AI_FREE: ${AI_FREE:-}
+  SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
+  SEARCH_API_URL: ${SEARCH_API_URL:-}
+  SEARCH_API_KEY: ${SEARCH_API_KEY:-}
+
+  # Mobile push. Partial config disables push with a warning, never a crash.
+  APNS_KEY: ${APNS_KEY:-}
+  APNS_KEY_ID: ${APNS_KEY_ID:-}
+  APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+  APNS_TOPIC: ${APNS_TOPIC:-}
+  NOTIFICATION_PUSH_WINDOW: ${NOTIFICATION_PUSH_WINDOW:-}
+  NOTIFICATION_EMAIL_DAILY_CAP: ${NOTIFICATION_EMAIL_DAILY_CAP:-}
+
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+services:
+
+  # ─── infrastructure ───────────────────────────────────────────────────
+
+  postgres:
+    restart: unless-stopped
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dakiya
+      POSTGRES_PASSWORD: dakiya
+      POSTGRES_DB: dakiya_dev
+    ports: ["15432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dakiya"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    restart: unless-stopped
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nats:
+    restart: unless-stopped
+    image: nats:2.10-alpine
+    # -js: JetStream (durable streams). -m 8222: HTTP monitoring for healthcheck.
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports: ["4222:4222", "8222:8222"]
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # SMTP sink for testing campaign sends without a real mailbox.
+  #
+  # In the `sandbox` profile, so `make up` never starts it: platform mail goes
+  # to the logs (MAIL_TRANSPORT=log) or to your relay, and a real install sends
+  # campaign mail through the mailboxes you connect. `make sandbox`, `make dev`
+  # and `make infra` start it by naming it explicitly.
+  #
+  # Bound to loopback when it does run. Its web UI has no authentication, so
+  # publishing it would hand every captured message to anyone who can reach the
+  # host. Set MAILPIT_BIND=0.0.0.0 if you deliberately want it reachable.
+  mailpit:
+    restart: unless-stopped
+    image: axllent/mailpit:latest
+    profiles: ["sandbox"]
+    ports:
+      - "${MAILPIT_BIND:-127.0.0.1}:18025:8025"
+      - "${MAILPIT_BIND:-127.0.0.1}:11025:1025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  # Local IMAP host for the sandbox demo (`make sandbox`): the mailbox that
+  # every seeded sender syncs from, so replies and warmup mail actually land in
+  # the unified inbox. Any username logs in with the static password "sandbox";
+  # the self-signed cert is fine because sandbox clients set MAIL_TLS_INSECURE.
+  # In the `sandbox` profile so the lean `make up` self-host never pulls it.
+  # `make sandbox` / `make infra` start it by naming it explicitly.
+  dovecot:
+    restart: unless-stopped
+    image: dovecot/dovecot:latest
+    profiles: ["sandbox"]
+    environment:
+      USER_PASSWORD: "{PLAIN}sandbox"
+    ports:
+      - "10143:31143"  # IMAP (cleartext; debugging only)
+      - "10993:31993"  # IMAPS (self-signed cert; the sandbox worker + simulator dial this)
+    healthcheck:
+      test: ["CMD", "doveadm", "service", "status", "imap-login"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── application ──────────────────────────────────────────────────────
+
+  backend:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+    ports: ["8080:8080"]
+    environment:
+      <<: *selfhost-env
+      API_HOST: "0.0.0.0:8080"
+      GIN_MODE: release
+      # To reach Dakiya Mail from another machine, set PUBLIC_HOST=<ip-or-domain> in
+      # .env and every URL below derives from it. Or set each URL explicitly.
+      APP_URL: ${APP_URL:-http://${PUBLIC_HOST:-localhost}:5173}
+      # The backend's own public base. Remote workers enrolled from here get it
+      # as ENCRYPTED_KEYS_BACKEND_URL, so it must be reachable from the worker.
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://${PUBLIC_HOST:-localhost}:8080}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://${PUBLIC_HOST:-localhost}:5173,http://${PUBLIC_HOST:-localhost}:5174}
+      WEBSOCKET_URL: ${WEBSOCKET_URL:-ws://${PUBLIC_HOST:-localhost}:4000/socket/websocket}
+      ENCRYPTED_KEYS_PROVIDER: postgres
+      # Mail and auth policy live in the shared anchor above, so the consumer
+      # gets them too. It previously received neither, which silently disabled
+      # every notification and digest email in this stack.
+      TRACKING_DOMAIN: ${TRACKING_DOMAIN:-${PUBLIC_HOST:-localhost}:3000}
+      GEODB_PATH: ${GEODB_PATH:-/app/data/GeoLite2-City.mmdb}
+      # Gmail mailbox OAuth (leave unset to connect only SMTP/IMAP + Outlook
+      # mailboxes). See the self-hosting docs for the Google Cloud setup.
+      BOX_GOOGLE_CLIENT_ID: ${BOX_GOOGLE_CLIENT_ID:-}
+      BOX_GOOGLE_CLIENT_SECRET: ${BOX_GOOGLE_CLIENT_SECRET:-}
+      BOX_OUTLOOK_CLIENT_ID: ${BOX_OUTLOOK_CLIENT_ID:-}
+      BOX_OUTLOOK_CLIENT_SECRET: ${BOX_OUTLOOK_CLIENT_SECRET:-}
+      # Sign in with Google / Apple. Separate from the BOX_* mailbox clients
+      # above; email+password and passkeys work without any of these.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+      APPLE_APP_ID: ${APPLE_APP_ID:-}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
+      APPLE_KEY_ID: ${APPLE_KEY_ID:-}
+      APPLE_KEY_SECRET: ${APPLE_KEY_SECRET:-}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI:-}
+      # Passkeys derive from APP_URL when unset. Changing the RP id invalidates
+      # every enrolled passkey, so keep it stable per deployment.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_RP_ORIGINS: ${WEBAUTHN_RP_ORIGINS:-}
+      # Worker image the orchestrator installs on remote machines.
+      WORKER_IMAGE: ${WORKER_IMAGE:-}
+    volumes:
+      - blobs:/data/blobs
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  consumer:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/docker/consumer.Dockerfile
+    environment:
+      <<: *selfhost-env
+      ENCRYPTED_KEYS_PROVIDER: postgres
+    volumes:
+      - blobs:/data/blobs
+    depends_on:
+      backend: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
+  # One worker by default. Scale out with `docker compose up --scale worker=3`
+  # (or run more on other machines via the SSH enrollment flow). Outbound IPs
+  # belong to the mail provider, so more workers = more parallelism, not more IPs.
+  worker:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    environment:
+      <<: *selfhost-env
+      # Dovecot in the sandbox profile uses a self-signed cert. Set
+      # MAIL_TLS_INSECURE=false once you only connect real mailboxes.
+      MAIL_TLS_INSECURE: ${MAIL_TLS_INSECURE:-true}
+      ENCRYPTED_KEYS_PROVIDER: http
+      ENCRYPTED_KEYS_BACKEND_URL: ${ENCRYPTED_KEYS_BACKEND_URL:-http://backend:8080}
+      ENCRYPTED_KEYS_WORKER_TOKEN: ${INTERNAL_API_TOKEN:-local-dev-internal-token}
+      # Unset by default so each replica generates its own id and --scale works.
+      # Pin it only when running exactly one worker on this host.
+      WORKER_ID: ${WORKER_ID:-}
+      WORKER_TIER: ${WORKER_TIER:-}
+      WORKER_EGRESS_KIND: ${WORKER_EGRESS_KIND:-}
+      BOX_GOOGLE_CLIENT_ID: ${BOX_GOOGLE_CLIENT_ID:-}
+      BOX_GOOGLE_CLIENT_SECRET: ${BOX_GOOGLE_CLIENT_SECRET:-}
+      BOX_OUTLOOK_CLIENT_ID: ${BOX_OUTLOOK_CLIENT_ID:-}
+      BOX_OUTLOOK_CLIENT_SECRET: ${BOX_OUTLOOK_CLIENT_SECRET:-}
+    volumes:
+      - blobs:/data/blobs
+    depends_on:
+      backend: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
+  tracking:
+    restart: unless-stopped
+    build:
+      context: ./tracking
+      dockerfile: Dockerfile
+    # 3000 is a very common default for other self-hosted tools. Remap the host
+    # side with TRACKING_PORT when it is already taken; the container port and
+    # everything derived from TRACKING_DOMAIN stay as they are.
+    ports: ["${TRACKING_PORT:-3000}:3000"]
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      AWS_CONFIG_ENABLED: ${AWS_CONFIG_ENABLED:-false}
+      TRACKING_HOST: "0.0.0.0"
+      TRACKING_PORT: "3000"
+      EVENTBUS_PROVIDER: ${EVENTBUS_PROVIDER:-nats}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-}
+      KAFKA_TRACKING_TOPIC: ${KAFKA_TRACKING_TOPIC:-tracking-events}
+      TRACKING_RATE_LIMIT_PER_MIN: ${TRACKING_RATE_LIMIT_PER_MIN:-}
+      TRACKING_PAGEHIT_RATE_LIMIT_PER_MIN: ${TRACKING_PAGEHIT_RATE_LIMIT_PER_MIN:-}
+      TRACKING_TRUSTED_PROXIES: ${TRACKING_TRUSTED_PROXIES:-}
+      TRACKING_CLIENT_IP_HEADER: ${TRACKING_CLIENT_IP_HEADER:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Overridable so `make dev` (native backend) can point at
+      # host.docker.internal:8080 while `docker compose up` uses the container.
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8080}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-local-dev-internal-token}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      nats: { condition: service_healthy }
+
+  realtime:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/docker/realtime.Dockerfile
+    ports: ["4000:4000"]
+    environment:
+      PHX_HOST: ${PHX_HOST:-${PUBLIC_HOST:-localhost}}
+      PORT: 4000
+      DATABASE_URL: ${PRIMARY_DB:-postgres://dakiya:dakiya@postgres:5432/dakiya_dev?sslmode=disable}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+      REDIS_URL: ${REDIS:-redis://redis:6379}
+      # Must equal the backend AUTH_SECRET so JWTs validate across services.
+      JWT_SECRET: ${AUTH_SECRET:-local-dev-auth-secret-minimum-32-characters-long}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-local-development-secret-key-base-minimum-64-characters-for-phoenix}
+      PUBSUB_ENABLED: ${PUBSUB_ENABLED:-false}
+      # Behind a reverse proxy set CHECK_ORIGIN=true once PHX_HOST matches the
+      # public websocket hostname.
+      CHECK_ORIGIN: ${CHECK_ORIGIN:-false}
+    # SENTRY_DSN deliberately arrives via env_file, not the mapping above: the
+    # Elixir Sentry library reads the variable itself and refuses to start on an
+    # empty string, so it has to be genuinely absent rather than "".
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # Production build of the dashboard (static SPA served by nginx). URLs come
+  # from the DAKIYA_* env at container start via /config.js, so the same image
+  # the release publishes to GHCR is what runs here. For hot-reload development
+  # use `make app` / docker-compose.dev.yml instead.
+  web:
+    restart: unless-stopped
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports: ["5173:80"]
+    environment:
+      DAKIYA_API_URL: ${API_PUBLIC_URL:-http://${PUBLIC_HOST:-localhost}:8080}
+      DAKIYA_APP_URL: ${APP_URL:-http://${PUBLIC_HOST:-localhost}:5173}
+      # Cloudflare's always-pass test key keeps the widget satisfied while
+      # captcha is off server-side. Set DAKIYA_TURNSTILE_KEY to your site key
+      # when you set CAPTCHA_PROVIDER=turnstile.
+      DAKIYA_TURNSTILE_KEY: ${DAKIYA_TURNSTILE_KEY:-1x00000000000000000000AA}
+    depends_on:
+      backend: { condition: service_healthy }
+
+  admin:
+    restart: unless-stopped
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    ports: ["5174:80"]
+    environment:
+      DAKIYA_API_URL: ${API_PUBLIC_URL:-http://${PUBLIC_HOST:-localhost}:8080}
+      DAKIYA_DASHBOARD_URL: ${APP_URL:-http://${PUBLIC_HOST:-localhost}:5173}
+      DAKIYA_ENV_LABEL: ${ENV_LABEL:-development}
+      DAKIYA_TURNSTILE_KEY: ${DAKIYA_TURNSTILE_KEY:-1x00000000000000000000AA}
+    depends_on:
+      backend: { condition: service_healthy }
+
+  # ─── one-shots ────────────────────────────────────────────────────────
+
+  # Optional demo seed. Run explicitly: docker compose --profile seed run --rm seed
+  seed:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+    entrypoint: ["/app/seed"]
+    environment:
+      <<: *selfhost-env
+      SEED_RICH: "true"
+      # Without SEED_FULL the paid plans, durations, and subscriptions never
+      # load, so the seeded orgs come up with no plan attached.
+      SEED_FULL: "true"
+    depends_on:
+      backend: { condition: service_healthy }
+    profiles: ["seed"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+  blobs:

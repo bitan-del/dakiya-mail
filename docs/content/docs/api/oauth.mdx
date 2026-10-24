@@ -1,0 +1,344 @@
+---
+title: OAuth
+description: Let third-party apps act on behalf of a Dakiya Mail workspace with the authorization-code flow.
+---
+
+API keys are for your own scripts. When you build an app that other people connect their Dakiya Mail workspace to, use OAuth instead: the user grants your app scoped access on a consent screen, and you receive tokens that act on their behalf. You never see their password or API key.
+
+Dakiya Mail implements the OAuth 2.1 authorization-code flow with PKCE. Confidential apps (registered in the dashboard) hold a client secret; public clients (native, mobile, and CLI apps, including MCP clients that self-register) use PKCE with no secret. The implicit and password grants are not supported.
+
+## Register your app
+
+In the dashboard, open **Settings -> OAuth apps** and register an application. You provide:
+
+- a **name**, optional description, logo, and website (shown on the consent screen),
+- one or more **redirect URIs** (where users are sent back after they approve), matched exactly and required to be HTTPS, except loopback URLs for native apps,
+- the **scopes** your app may request,
+- optionally, **allowed webhook domains** (see below).
+
+You receive a **client ID** and a **client secret**, shown only once. Keep the secret server-side and use it to authenticate the token exchange.
+
+## Public clients and dynamic registration
+
+Native apps, CLI tools, and MCP clients cannot safely hold a secret. They connect as public clients: no client secret, and PKCE is mandatory rather than optional. There are two ways to get a public `client_id`.
+
+Self-register at runtime with Dynamic Client Registration ([RFC 7591](https://www.rfc-editor.org/rfc/rfc7591)). This is the path MCP clients use, so a user connects with one command:
+
+```bash
+curl -X POST "https://api.dakiyamail.com/v1/oauth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_name": "My MCP client",
+    "redirect_uris": ["http://127.0.0.1:8080/callback"],
+    "token_endpoint_auth_method": "none",
+    "grant_types": ["authorization_code", "refresh_token"],
+    "response_types": ["code"]
+  }'
+```
+
+```json
+{
+  "client_id": "dmcid_...",
+  "client_id_issued_at": 1752624000,
+  "redirect_uris": ["http://127.0.0.1:8080/callback"],
+  "token_endpoint_auth_method": "none",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "scope": "read_campaigns read_contacts ..."
+}
+```
+
+The registration endpoint is open (unauthenticated) and rate-limited per source IP. Registering grants no access on its own: a human still signs in and approves scopes at the consent screen. Redirect URIs may be HTTPS, loopback (`http://127.0.0.1` or `localhost`, any port), or a private-use scheme (`myapp://`), matched exactly at authorize and token time. Self-registered clients can never request `SEND_CAMPAIGNS` or `API_KEYS`.
+
+For a public client the token exchange sends no `client_secret`, only the PKCE `code_verifier`. Everything else in the flow below is identical. If you are connecting an AI assistant, you do not run any of this by hand: see the [MCP server](/api/mcp/) page for the one-command setup.
+
+## Scopes
+
+OAuth scopes are the same permissions as API keys, lowercased (for example `read_campaigns`, `write_contacts`). A token can only ever carry scopes that the app was registered with. See the [permission reference](/api/permissions/) for the full list. The issued access token authenticates API calls with exactly those permissions, through the same gates as an API key.
+
+## The flow
+
+### 1. Send the user to the authorize page
+
+Redirect the user's browser to the consent page with the standard parameters. PKCE is optional but recommended: generate a `code_verifier` (a high-entropy random string) and send its S256 challenge.
+
+```
+code_challenge = base64url( sha256( code_verifier ) )
+```
+
+```
+https://app.dakiyamail.com/oauth/authorize
+  ?response_type=code
+  &client_id=dmcid_...
+  &redirect_uri=https://yourapp.com/oauth/callback
+  &scope=read_campaigns%20read_contacts
+  &state=<random-csrf-token>
+  &code_challenge=<challenge>
+  &code_challenge_method=S256
+```
+
+`state` is yours to verify on return (CSRF protection). The `code_challenge` and `code_challenge_method` are optional; if you include them, `code_challenge_method` must be `S256`.
+
+### 2. The user approves
+
+Dakiya Mail shows the app, the scopes it wants, and an authorize or deny choice. On approval the browser is redirected back to your `redirect_uri` with a single-use code:
+
+```
+https://yourapp.com/oauth/callback?code=dmac_...&state=<your-state>
+```
+
+If the user denies, the redirect carries `?error=access_denied&state=...` instead.
+
+### 3. Exchange the code for tokens
+
+Verify `state` matches, then `POST` to the token endpoint. The request is `application/x-www-form-urlencoded`; send your `client_secret` (in the body or via HTTP Basic auth), plus the original `code_verifier` if you used PKCE. A public client omits `client_secret` and always sends `code_verifier`.
+
+```bash
+curl -X POST "https://api.dakiyamail.com/v1/oauth/token" \
+  -d grant_type=authorization_code \
+  -d code=dmac_... \
+  -d redirect_uri=https://yourapp.com/oauth/callback \
+  -d client_id=dmcid_... \
+  -d client_secret=dmcs_... \
+  -d code_verifier=<the-original-verifier>
+```
+
+```json
+{
+  "access_token": "dmat_...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "dmrt_...",
+  "scope": "read_campaigns read_contacts"
+}
+```
+
+### 4. Call the API
+
+Use the access token exactly like an API key:
+
+```bash
+curl "https://api.dakiyamail.com/v1/campaigns" \
+  -H "Authorization: Bearer dmat_..."
+```
+
+### 5. Refresh when it expires
+
+Access tokens last one hour. Exchange the refresh token for a new pair before or after expiry. Refresh tokens **rotate**: the old one stops working the moment a new pair is issued, so always store the latest one.
+
+```bash
+curl -X POST "https://api.dakiyamail.com/v1/oauth/token" \
+  -d grant_type=refresh_token \
+  -d refresh_token=dmrt_... \
+  -d client_id=dmcid_... \
+  -d client_secret=dmcs_...
+```
+
+### Revoke
+
+Revoke an access or refresh token (and the grant behind it) when the user disconnects:
+
+```bash
+curl -X POST "https://api.dakiyamail.com/v1/oauth/revoke" \
+  -d token=dmat_... \
+  -d client_id=dmcid_... \
+  -d client_secret=dmcs_...
+```
+
+Users can also revoke your app themselves under **Settings -> OAuth apps -> Authorized apps**, which invalidates every token issued to it for that workspace.
+
+## Token lifetimes
+
+| Token | Lifetime | Notes |
+| --- | --- | --- |
+| Authorization code | 10 minutes | Single use, PKCE-bound |
+| Access token | 1 hour | Bearer, carries the granted scopes |
+| Refresh token | 90 days | Rotates on every use |
+
+## Discovery
+
+Endpoint URLs and capabilities are published for automatic client configuration.
+
+Authorization-server metadata ([RFC 8414](https://www.rfc-editor.org/rfc/rfc8414)):
+
+```
+GET https://api.dakiyamail.com/.well-known/oauth-authorization-server
+```
+
+It lists the authorization, token, revocation, and registration endpoints, the supported scopes, `code` as the only response type, `authorization_code` and `refresh_token` grants, `S256` as the only PKCE method, and `none` (public), `client_secret_basic`, and `client_secret_post` as the client authentication methods.
+
+Protected-resource metadata for the MCP endpoint ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)):
+
+```
+GET https://api.dakiyamail.com/.well-known/oauth-protected-resource
+```
+
+It names the resource and its authorization server, so an MCP client that gets a `401` with a `WWW-Authenticate` challenge from `/v1/mcp` can find where to authenticate. See the [MCP server](/api/mcp/) page.
+
+## Webhook domains for OAuth apps
+
+If your app registers webhook endpoints on behalf of its users, you must declare the domains those endpoints may use. Set `allowed_webhook_domains` on the app object (a string array) when creating or updating the app:
+
+```json
+{
+  "name": "My App",
+  "redirect_uris": ["https://yourapp.com/oauth/callback"],
+  "allowed_webhook_domains": [".acme.com", "hooks.partnersite.com"]
+}
+```
+
+Any webhook URL your app registers must have a host within this list. An empty list means the app cannot register webhook endpoints at all.
+
+**Matching rules:**
+
+- A bare entry (`acme.com`) matches that exact host only.
+- A leading-dot entry (`.acme.com`) matches the apex and any subdomain: `acme.com`, `hooks.acme.com`, `prod.hooks.acme.com`.
+
+The list is enforced at endpoint registration time and re-checked at delivery time. See the [webhooks reference](/api/reference/webhooks/) for the full endpoint verification and delivery flow.
+
+## Receiving events as an app (webhooks)
+
+Instead of holding one WebSocket connection per installed workspace, your app can declare a single webhook configuration and let Dakiya Mail deliver events to it automatically for every org that authorizes the app. This is the GitHub/Slack-app model: configure once on the app, receive from all installs.
+
+### App webhook config
+
+Set `webhook_url` and `webhook_events` when creating or updating your app via `POST /oauth/applications` or `PATCH /oauth/applications/:id`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `webhook_url` | string | The HTTPS URL events are delivered to. Its host must be within the app's `allowed_webhook_domains` (a 400 is returned otherwise). Set to empty to opt out of app-level webhook delivery. |
+| `webhook_events` | string[] | The event names the app subscribes to. An empty or omitted array subscribes to all non-firehose events permitted by the org's granted scopes. |
+
+The signing secret is server-generated and shared across the whole app: one secret, used to sign deliveries from every org install. Reveal or rotate it using the dedicated endpoints below.
+
+```json
+{
+  "name": "My App",
+  "redirect_uris": ["https://yourapp.com/oauth/callback"],
+  "allowed_webhook_domains": [".yourapp.com"],
+  "webhook_url": "https://hooks.yourapp.com/dakiya",
+  "webhook_events": ["campaign.reply_received", "meeting.booked", "contact.created"]
+}
+```
+
+### Automatic, scope-gated delivery
+
+When an org authorizes your app, Dakiya Mail automatically creates a managed webhook endpoint for that org and starts delivering the subscribed events. When the org revokes the app, that endpoint is removed.
+
+Events are gated by the intersection of what your app declared in `webhook_events` and what the org's granted scopes permit. An event family is only delivered if both the app holds the matching scope and the org granted it. The scope-to-event mapping:
+
+| Events | Required scope |
+| --- | --- |
+| `inbox.*` | `READ_UNIBOX` |
+| `campaign.*`, `deliverability.*`, `meeting.*` | `READ_CAMPAIGNS` |
+| `email_account.*`, `warmup.*` | `READ_EMAILS` |
+| `contact.*`, `bulk_operation.*` | `READ_CONTACTS` |
+| `crm.*` | `READ_CRM` |
+| `automation.*` | `INTEGRATIONS` |
+| `team.*`, `role.*`, `settings.*`, `subscription.*` | `READ_AUDIT_LOGS` |
+| `custom.event` | `REALTIME_SUBSCRIBE` |
+
+Every delivery payload carries `organization_id` so you can tell which install the event came from. Delivery is signed, retried with the same backoff schedule as regular webhooks, and verifiable using the same `X-Dakiya-Signature` scheme. See [Webhooks: verifying signatures](/api/reference/webhooks/#verifying-signatures) for the verification algorithm.
+
+### App webhook management endpoints
+
+All four endpoints require **Scope** `API_KEYS` and **org permission** `manage_api_keys`.
+
+#### Reveal the webhook secret
+
+`GET /oauth/applications/{id}/webhook-secret`
+
+Returns the current signing secret. This is the `whsec_`-prefixed value used to verify all deliveries for this app, across every org install.
+
+```json
+{ "webhook_secret": "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0" }
+```
+
+#### Rotate the webhook secret
+
+`POST /oauth/applications/{id}/webhook-secret/rotate`
+
+Issues a new signing secret and returns it once. Update your verification logic before in-flight deliveries settle against the old secret.
+
+```json
+{ "webhook_secret": "whsec_1a2b3c4d5e6f70819a2b3c4d5e6f70819a2b3c4d5e6f70819a2b3c4d5e6f7081" }
+```
+
+#### List per-org endpoints
+
+`GET /oauth/applications/{id}/webhook-endpoints`
+
+Returns the managed per-org endpoints that Dakiya Mail materialized for this app, with their current health.
+
+```json
+{
+  "endpoints": [
+    {
+      "id": "a3f1c2e4-5b6d-7e8f-9a0b-1c2d3e4f5a6b",
+      "organization_id": "11111111-2222-3333-4444-555555555555",
+      "url": "https://hooks.yourapp.com/dakiya",
+      "enabled": true,
+      "verified_at": "2026-06-14T10:00:00Z",
+      "consecutive_failures": 0,
+      "last_success_at": "2026-06-14T10:05:00Z",
+      "last_failure_at": null
+    }
+  ]
+}
+```
+
+#### Cross-org delivery log
+
+`GET /oauth/applications/{id}/webhook-deliveries`
+
+Returns the delivery log across all org installs, newest first. Every attempt is included with its response code, error, payload, and retry state.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `status` | query | string | Filter by status: `pending`, `in_flight`, `delivered`, `failed`, or `abandoned`. |
+| `event_type` | query | string | Filter by event type, for example `campaign.reply_received`. |
+| `limit` | query | integer | Max rows. Between 1 and 200, defaults to 50. Out-of-range values return `400`. |
+| `cursor` | query | string | Opaque pagination cursor from `pagination.next_cursor`. |
+
+Response uses the standard `data` + `pagination` envelope with opaque cursors. Each row includes `organization_id` so you can see which install each delivery belongs to.
+
+### Webhooks vs the realtime gateway
+
+The [realtime gateway](/api/realtime/) and app-level webhooks deliver the same event vocabulary. Choose based on your integration's needs:
+
+| | Realtime gateway | App-level webhooks |
+| --- | --- | --- |
+| Transport | WebSocket (persistent connection) | HTTP POST (stateless delivery) |
+| Best for | Live UI, presence, low-latency dashboards | Durable processing, pipelines, serverless receivers |
+| Connection model | One connection per install | No persistent connection; Dakiya Mail pushes to your URL |
+| Delivery guarantees | Lossy on disconnect (resume/replay available) | Retried with exponential backoff, inspectable log |
+| Scope gating | Per-connection intents | Per-app scope, enforced per org grant |
+
+Both are equally valid depending on what you are building. A dashboard-like integration benefits from the WebSocket's low latency and presence features. A data-pipeline or serverless integration benefits from the webhook's durable, individually-inspectable HTTP deliveries without holding a connection open for every installed org.
+
+## Security notes
+
+- Redirect URIs are matched exactly, so register every callback you use.
+- Always send and verify `state`.
+- PKCE is required for public clients and recommended for confidential apps; when used, only `S256` is accepted.
+- Keep your client secret server-side. Native, mobile, and CLI apps should register as public clients and use PKCE rather than embedding a secret.
+- Dynamic registration is open and per-IP rate-limited; a self-registered client is public, cannot request `SEND_CAMPAIGNS` or `API_KEYS`, and grants no access until a human approves scopes at consent.
+- Set `allowed_webhook_domains` to the smallest set of domains your app needs. An overly broad list widens the surface for SSRF if a user tricks your app into registering an unexpected URL.
+- The app webhook secret is shared across all org installs. Rotate it if it is compromised, and update your receiver promptly: in-flight deliveries that were already signed continue to verify against the old secret until they settle.
+
+## Related
+
+<Cards>
+  <Card title="Permissions" href="/api/permissions/">
+    The scopes an OAuth app can request, shared with API keys.
+  </Card>
+  <Card title="Authentication" href="/api/authentication/">
+    Using bearer tokens (API keys and OAuth) on the API.
+  </Card>
+  <Card title="Webhooks" href="/api/reference/webhooks/">
+    Delivery mechanics, signature verification, and the full event catalog.
+  </Card>
+  <Card title="Realtime gateway" href="/api/realtime/">
+    WebSocket alternative for live, low-latency event streaming.
+  </Card>
+</Cards>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Admin favicon: the Dakiya Mail mark in the admin red (red-600, the theme's
+       admin-danger token) on the app's dark slate. The red marks this as the
+       restricted admin surface and sets the tab apart from the dashboard. -->
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <path transform="translate(8.35 7.78) scale(0.0634)"
+        d="M146 182H600A56 56 0 0 1 656 238V526A56 56 0 0 1 600 582H146A56 56 0 0 1 90 526V238A56 56 0 0 1 146 182ZM146 232V300L373 468L600 300V232L373 400Z"
+        fill="#dc2626"/>
+</svg>

@@ -1,0 +1,211 @@
+---
+title: "Deliverability"
+description: "Bounce, complaint, and spam-placement health, with the thresholds Dakiya Mail acts on."
+---
+
+Deliverability is whether your mail reaches the inbox instead of bouncing, getting marked as spam, or landing in junk. Dakiya Mail tracks it per mailbox and per campaign, and acts automatically when a mailbox looks risky.
+
+These defaults are deliberately stricter than the point where Google or Microsoft start penalizing senders, so action happens before provider enforcement hits your reputation.
+
+## The dashboard
+
+Scope everything to `7d`, `30d`, or `90d` with the range tabs. It updates live, so no refreshing.
+
+| Section | What it shows |
+|---------|---------------|
+| Headline rates | Deliverability score, bounce rate, complaint rate, spam placement, suppressed count |
+| Over time | One metric per day: bounces, complaints, opens, replies, or sent. Use it to find the day something spiked |
+| Window totals | Raw counts behind the rates |
+| Seed inbox placement | Inbox vs spam share from test deliveries, with the sample count |
+| Placement by provider | The same split per Gmail, Outlook, and IMAP/SMTP |
+| Warmup placement by domain | Continuous placement per recipient domain, amber at `10%` spam, red at `20%` |
+| Gmail Postmaster | Gmail's own reputation, spam rate and authentication results for each sending domain. See [Gmail Postmaster Tools](#gmail-postmaster-tools) |
+| At risk | Mailboxes and campaigns with bounce or complaint activity, worst first |
+
+The **score** is a `0-100` composite starting at `100`: bounce rate subtracts up to `40` points (maxed at `10%`), complaint rate up to `30` (maxed at `0.30%`), spam placement up to `40` (maxed at `40%`). Bounce rate is highlighted at `5%`, complaint rate at `0.1%`.
+
+Use **Customize** to pick which sections show. Your choices and time window persist per browser.
+
+<Callout type="info" title="Placement needs a sample">
+Placement figures only appear once seed data exists, and a small sample is a hint rather than a verdict. Dakiya Mail waits for a meaningful sample before acting.
+</Callout>
+
+**Placement by provider is the check before scaling a campaign.** An aggregate rate can look fine while one provider quietly junks everything: Gmail at `95%` inbox with Outlook at `40%` is a provider-specific problem, usually authentication or content, not volume.
+
+**Warmup placement is your continuous signal.** Seed tests are point-in-time probes, but every verified warmup delivery reports inbox or spam, so drift appears here before it becomes complaints on a campaign.
+
+## Health bands
+
+Each mailbox sits in a band, shown as a colored chip. The band controls how Dakiya Mail treats it.
+
+| Band | Spam placement | Complaint rate | Bounce rate | Other triggers |
+| --- | --- | --- | --- | --- |
+| Watch | `>= 10%` | `>= 0.03%` | n/a | n/a |
+| Quarantine | `>= 20%` | `>= 0.10%` | `>= 5%` | Repeated suspicious warmup-token failures |
+| Blocked | `>= 40%` | `>= 0.30%` | `>= 10%` | Clear abuse signals (token forgery, repeated spam flags) |
+| Catastrophic | `>= 80%` | n/a | n/a | n/a |
+
+A mailbox enters a band by crossing any single threshold. What each band does:
+
+- **Healthy**: sending normally, nothing to do.
+- **Watch**: warmup volume lowered and spacing increased. Cold volume is dampened by the same factor, so it slows across both before reaching quarantine.
+- **Quarantine**: out of the shared paid warmup pool for `7 days`, as neither sender nor recipient. Cold sending is throttled or paused.
+- **Blocked**: out of the shared pool for `30 days`, review required before re-entry.
+- **Catastrophic**: immediate long block and a full reputation reset. No automatic return.
+
+**Sample floors** stop one bad event flipping a new mailbox: spam placement needs `20+` warmup deliveries in `7 days`, complaints need `100+` delivered emails in `30 days`.
+
+<Callout type="info" title="Different metrics, different failure modes">
+Dakiya Mail never acts on the composite score alone. Complaint rate, spam placement, and bounce rate are tracked separately because they fail for different reasons, so any one can move a mailbox even while the score still looks fine.
+</Callout>
+
+### Re-entry after a block
+
+Time elapsing is not enough. A blocked mailbox must requalify: SPF, DKIM, and DMARC still healthy; no recent complaints or hard-bounce spikes; no recent invalid warmup-token attempts; spam placement back under `10%` on a fresh probation sample. Re-entry then starts low, around `5-10/day` of warmup.
+
+## Domain authentication
+
+Gmail, Yahoo, and Outlook all require SPF, DKIM, and DMARC, and failed alignment is the most common silent reason mail lands in spam. Dakiya Mail checks each sending domain in the background about once a day, and on demand from the mailbox.
+
+- **Passing**: SPF and DMARC both present, the two records readable authoritatively from DNS.
+- **Failing**: SPF or DMARC missing.
+- **Unknown**: not checked yet, or the lookup could not complete. A DNS hiccup never looks like a misconfiguration.
+
+DKIM is advisory: selectors are not discoverable from DNS, so "not found" means unconfirmed, not absent. A domain can pass on SPF and DMARC with DKIM unconfirmed.
+
+A DMARC record on the parent domain covers its subdomains, so a dedicated sending subdomain like `mail.yourdomain.com` passes on the record published at `yourdomain.com`. Where the parent sets `sp=`, that is the policy shown, because `sp=` is what the parent publishes for its subdomains. SPF works the other way: it never inherits, so every sending subdomain needs its own SPF record.
+
+Only the two records that DNS can answer for decide the state. A DMARC policy of `p=none` is Passing, because Google's bulk sender rules ask for a DMARC record at `p=none` or stronger, and stopping mail from a compliant sender would help nobody.
+
+### What a Failing domain stops
+
+A domain that stays Failing past the grace period stops **cold campaign sending** and **warmup sending** from every mailbox on it. The mailbox stays connected, keeps syncing, and keeps receiving warmup mail, so it holds its place in the pool and its inbound capacity. It just stops adding unauthenticated volume to a reputation everyone in the pool shares.
+
+The grace period is set per instance and defaults to `72 hours`, measured from the moment the check first saw the failure, not from when you connected the mailbox. Nothing stops the day a record breaks. You are notified when the clock starts, the mailbox drawer shows the state, and the Advisor card counts down to the date sending stops.
+
+<Callout type="info" title="Your own replies are never blocked">
+The gate covers cold campaigns and warmup only. Manual sends and replies from the unibox always go out, whatever the domain state, because stopping a human mid-conversation is worse than the reputation risk of one message. The mailbox picker still ranks an unauthenticated mailbox last and labels it.
+</Callout>
+
+### Getting sending back
+
+Add the missing records at your registrar, then open the mailbox and press **Re-check** under Domain authentication. That records the new verdict immediately and sending resumes on the next scheduled send. Waiting for the background check works too, it is just slower: it reaches each domain about once a day.
+
+Re-check is also worth pressing after reconnecting a mailbox that was disconnected while Failing, since its stored state is refreshed from scratch when it comes back.
+
+If a campaign has already been paused because every one of its mailboxes was gated, the activity log says so, and you restart the campaign yourself once the domain reads Passing.
+
+## Gmail Postmaster Tools
+
+Everything above is Dakiya Mail's own measurement. Google Postmaster Tools is Gmail's, which makes it the one signal that comes from the provider you are trying to reach. Connect it and the **Gmail Postmaster** section of the dashboard shows, for each of your sending domains:
+
+| Signal | What it tells you |
+|--------|-------------------|
+| Domain reputation | Gmail's rating of the domain: High, Medium, Low or Bad |
+| Spam rate | The share of mail Gmail delivered to inboxes that users then reported as spam, charted per day against `0.10%` (keep below) and `0.30%` (never reach) |
+| SPF, DKIM and DMARC pass rates | How much of your mail passed each check at Gmail, which catches an authentication problem that DNS looks fine for |
+
+The domains are taken from your mailbox addresses. Mailboxes on `gmail.com` and other free providers have no domain of their own, so they are left out.
+
+### What to expect from the data
+
+- **Gmail reports a domain only when it sees enough mail from it.** A quiet domain has days with nothing, and those days show as gaps rather than zeros.
+- **It runs about two days behind** the mail, and each day is reported once Gmail has it.
+- **Gmail gives rates, not counts.** The averages in the section are plain means over the days Gmail reported, not weighted by volume.
+- **A domain must be verified** at [postmaster.google.com](https://postmaster.google.com/) with a DNS record, under the same Google account you connect.
+
+<Callout type="info" title="Reputation is on its way out">
+Google is retiring the older Postmaster API, which is the only one that reports domain reputation. Dakiya Mail asks that API first and falls back to the newer one when it stops answering. The newer API has the spam rate and authentication results but no reputation, so the badge then reads **Not reported**. Days you already collected keep their reputation.
+</Callout>
+
+### Connecting Google
+
+Connecting is one instance-wide setting, so it is available on self-hosted instances, to members who can manage settings. It needs `CREDENTIALS_ENCRYPTION_KEY` to be set, because the credentials are stored encrypted with it.
+
+1. Verify each sending domain at [postmaster.google.com](https://postmaster.google.com/) using the Google account that should own the data.
+2. In Google Cloud, create a project, turn on the **Gmail Postmaster Tools API**, and create an OAuth client.
+3. Authorize that client for both scopes, `https://www.googleapis.com/auth/postmaster.readonly` and `https://www.googleapis.com/auth/postmaster.traffic.readonly`, and keep the refresh token. The first covers the older API and the second the newer one, so granting both keeps the section working when Google switches over.
+4. Open **Deliverability**, choose **Connect Google** in the Gmail Postmaster section, and paste the client ID, client secret and refresh token.
+
+Dakiya Mail checks the credentials with Google before it stores anything, then starts pulling the last `120` days straight away. After that it refreshes the last `30` days once a day. If Google starts refusing the credentials, for example because the refresh token was revoked, the section says so and keeps the history it has. **Disconnect** removes the credentials and leaves the stored history in place.
+
+The credentials are never returned by the API and are never part of a [workspace archive](/guides/workspace-export-import/). The daily numbers are part of the Delivery events group, so they move with the workspace, and the destination connects its own Google account to keep them updating.
+
+### Reading it
+
+Treat the two spam-rate lines the way Gmail does: stay under `0.10%`, and avoid ever reaching `0.30%`, which is Google's own guidance for bulk senders. A rising line is worth acting on before it crosses. Slow the campaigns on that domain, tighten the audience, and check the one-click unsubscribe is working.
+
+An authentication pass rate below about `95%` is amber. It usually means one sending service is missing from your SPF record or is not signing with your DKIM key, and the [domain authentication](#domain-authentication) check on the mailbox is the place to start.
+
+## Built-in protections
+
+**One-click unsubscribe** (RFC 8058) puts a native Unsubscribe control in the recipient's mail client. It drives complaint rate down, because someone who can opt out cleanly rarely hits "mark as spam" instead, and Google's bulk-sender guidance effectively requires it at volume. Unsubscribes are suppressed automatically.
+
+**Pre-send verification** checks an address before sending and skips undeliverable ones, keeping bad addresses from becoming the hard bounces that drive the `5%` and `10%` thresholds above. A skipped lead shows as **Undeliverable** in the campaign's Leads view rather than sitting at Queued, and the campaign's activity log says how many it skipped when it finishes, so a campaign is never quietly held up by addresses it will not send to. Verification only records an address as invalid when the recipient's server rejects the address itself. A server that rejects the check for its own reasons (a policy block, a rate limit, or a greeting it does not accept) leaves the address unverified, and unverified addresses are still sent to. Self-hosted instances should set `EMAIL_VERIFY_HELO_HOST`, described in the [configuration reference](/development/configuration/#pre-send-verification).
+
+**The deliverability preflight** checks a campaign against all of this before you launch it: sending-domain authentication, mailbox complaint and bounce rates, the unsubscribe header, list quality, and planned volume against mailbox caps. A failed check asks for an explicit confirmation before the campaign starts. See [the deliverability preflight](/guides/campaigns/#the-deliverability-preflight).
+
+**Sunset policy** keeps you from mailing people who never engage. A campaign can skip contacts who have had a set number of campaign emails from your workspace without a human open, click or reply, and it can send new leads to the most engaged contacts first. Repeatedly mailing contacts who never engage hurts inbox placement for the whole sending domain, so send important notices from a separate sending domain. See [new lead order and sunset](/guides/campaigns/#new-lead-order-and-sunset).
+
+**Suppression** is the safety net: a suppressed recipient is never emailed again by any campaign. Dakiya Mail suppresses automatically on a bounce, a spam complaint, or an unsubscribe, because once someone has bounced or complained the safest response is to stop, not to keep collecting negative signals.
+
+The list is held per workspace, and the check runs against the sending campaign's workspace before every send. If a campaign somehow has no workspace, that check cannot be applied, so the campaign is paused with the reason in its activity feed instead of sending unchecked.
+
+Bounces are detected from the delivery-status report the recipient's server sends back. Only permanent failures (`5.x.x`, such as a nonexistent address) record a bounce and suppress; temporary ones (`4.x.x`, such as a full mailbox or greylisting) never do. This works the same for Gmail and Microsoft Graph mailboxes, where the send reports success and the bounce arrives later.
+
+**Spam complaints** arrive the same way. When a recipient presses "mark as spam", their provider mails an abuse report back to the sending mailbox. Dakiya Mail reads those reports, resolves them to the campaign send they name, and records a complaint: the recipient is suppressed and the number reaches your complaint rate. Providers that redact who complained still identify the message, so the right lead is suppressed anyway. Only genuine abuse reports count. A "not spam" report, where someone rescued your email from junk, is not recorded as a complaint. Who gets suppressed is always taken from the send the report names, never from an address written in the report, so a forged report cannot reach a contact that send never went to.
+
+<Callout type="info" title="Not yet on Microsoft Graph">
+Complaint reports are read from IMAP and Gmail mailboxes. Microsoft Graph returns a single rendered message body without the report's machine-readable parts, so reports arriving in a Graph-connected mailbox are not detected yet. Bounce handling is unaffected.
+</Callout>
+
+**Domain authentication refusals** are separated from ordinary failures. When a receiving server refuses a message because your sending domain failed its checks (Microsoft's `5.7.515`, Gmail's `5.7.26`), that is not a bad recipient and not an outage: every send from that domain fails the same way until its DNS is fixed. Dakiya Mail says so in the campaign's activity feed rather than blaming the address, does not suppress the recipient, and brings that domain's authentication check forward so the [domain authentication](/guides/deliverability/#domain-authentication) state reflects it.
+
+## Workspace sending posture
+
+Individual protections each watch one thing: a rate limit watches one user, warmup health watches one mailbox, verification watches one address. A workspace that is slightly wrong on several of those at once sits under every individual threshold and is never noticed. The workspace posture is the view that sees all of them together.
+
+| Posture | What it means | What changes |
+|---------|---------------|--------------|
+| `trusted` | The default | Nothing |
+| `watch` | Enough signal to keep an eye on | Nothing you can feel. It exists so evidence builds before anything is taken away |
+| `restricted` | Evidence of what the workspace sent, not only how it looks | Daily volume per mailbox drops to a quarter, and warmup moves to the shared free pool |
+| `suspended` | Serious or confirmed abuse | Sending stops, pending review |
+
+When a workspace is restricted or suspended, a banner across the top of the dashboard says so and why. Nothing is ever taken away silently.
+
+Signals come in two kinds, and only one of them can cost you volume.
+
+**How a workspace looks** is evidence, not a verdict. Several workspaces opened from one office address, one person opening all of them, or a batch of mailboxes connected in an afternoon are exactly what an agency onboarding clients looks like, so on their own these can only reach `watch`. They are recorded, they show up in review, and they change nothing you can feel.
+
+**What a workspace does to recipients** is what a posture acts on: an import that is mostly unusable addresses, a bounce rate at or above `5%`, or a complaint rate at or above `0.1%`. Rates are measured over at least `100` sends in the last `30 days`, because below that a percentage is noise. A rate past the point providers themselves act on, `10%` bounces or `0.3%` complaints, is enough to restrict a workspace on its own.
+
+### How a posture lifts
+
+No posture is permanent, and there are three ways out of one.
+
+**The evidence stops holding.** Postures are re-derived nightly, so a posture lifts on its own once the findings behind it no longer stand. A finding that is re-checked on a schedule, such as being part of a cluster of workspaces opened from one address, is withdrawn the moment it stops being true. Import quality is measured across everything a workspace has imported rather than per file, so one clean upload does not erase a bad list that is still stored, and the finding fades as good data outweighs it.
+
+**A one-off finding ages out.** A detector that fires once and has nothing that would ever re-check it, such as the score of the address a workspace signed up with or a run of sign-ins from implausible places, files its finding with a 30-day expiry. After that it is retired and the score falls without anyone doing anything.
+
+**Review.** A platform operator can read every finding on file, retract any one of them, and set the posture directly. A posture set by review holds against the detectors until an operator lifts it, so a workspace cleared by a human is not put back by evidence that is still on file, and a workspace an operator suspended is not released by a detector retracting.
+
+If your workspace is restricted or suspended and you believe it is wrong, reply to the notice or contact your platform operator and ask for a review. The banner's reason is the same sentence they see.
+
+## How to read it
+
+1. Start with the headline numbers. Bounce at `5%` and complaints at `0.1%` are the highlighted danger lines.
+2. If a rate looks off, switch the chart to that metric and find the spike day. It usually points at one campaign or one imported list.
+3. Check placement by provider and by domain to see whether mail actually reaches inboxes.
+4. Read the at-risk lists. The chips show which senders Dakiya Mail is already acting on.
+5. Slow down anything in Watch and let it recover. Leave Quarantine and Blocked out of sending until they requalify.
+
+The habit that matters: keep complaint rate and spam placement low. A clean reputation at modest volume beats high volume with rising complaints every time.
+
+## Related guides
+
+<Cards>
+  <Card title="Warmup" href="/guides/warmup/" />
+  <Card title="Personalization & expressions" href="/guides/expressions/" />
+  <Card title="Error codes" href="/api/error-codes/" />
+</Cards>

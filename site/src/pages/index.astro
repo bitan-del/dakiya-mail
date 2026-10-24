@@ -1,0 +1,1046 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+import DashboardMock from '../components/DashboardMock.astro';
+import HeroAtmosphere from '../components/HeroAtmosphere.astro';
+import FeatureSection from '../components/FeatureSection.astro';
+import CampaignBuilderMock from '../components/CampaignBuilderMock.astro';
+import ScheduleMock from '../components/ScheduleMock.astro';
+import UniboxMock from '../components/UniboxMock.astro';
+import AnalyticsMock from '../components/AnalyticsMock.astro';
+import AIAssistantMock from '../components/AIAssistantMock.astro';
+import IntegrationsMock from '../components/IntegrationsMock.astro';
+import DeveloperMock from '../components/DeveloperMock.astro';
+import CRMMock from '../components/CRMMock.astro';
+import TemplatingShowcase from '../components/TemplatingShowcase.astro';
+import ChangelogShowcase from '../components/ChangelogShowcase.astro';
+import OpenSourceShowcase from '../components/OpenSourceShowcase.astro';
+import AutomationsShowcase from '../components/AutomationsShowcase.astro';
+import MobileAppShowcase from '../components/MobileAppShowcase.astro';
+import BentoGrid from '../components/BentoGrid.astro';
+
+// "How we differ": warmup ramp bars for the guardrails card (10 -> 40, +1/day).
+const diffRamp = [25, 32, 40, 47, 55, 62, 70, 77, 85, 92, 100];
+
+// Mirrors web/src/lib/plans.ts — single source of truth.
+const plans = [
+  {
+    name: 'Starter',
+    price: '$29',
+    annual: '$23',
+    cadence: '/ month',
+    summary: 'Great for small businesses with a small budget.',
+    cta: 'Start free',
+    href: 'https://app.dakiyamail.com/register?plan=starter',
+    highlight: false,
+    sendsPerDay: 150,
+    // Annual is 20% off, so the yearly saving is (monthly - annual) * 12.
+    save: '$72',
+    // Log-scaled so 150 -> 15,000 stays legible as a bar.
+    meter: 47,
+    // Daily volume is the headline number on the card, so it is deliberately
+    // not repeated as a bullet here.
+    features: [
+      'Unlimited warmup',
+      'Unlimited mailboxes',
+      'Unified inbox with reply detection',
+      'Sequences that stop on reply',
+      'Inbox placement monitoring',
+    ],
+  },
+  {
+    name: 'Grow',
+    price: '$89',
+    annual: '$71',
+    cadence: '/ month',
+    summary: 'Ideal for growing businesses scaling their outreach.',
+    cta: 'Start free',
+    href: 'https://app.dakiyamail.com/register?plan=grow',
+    highlight: false,
+    sendsPerDay: 3000,
+    save: '$216',
+    meter: 76,
+    features: [
+      'Everything in Starter',
+      'CRM with pipelines and deals',
+      'A/B variants per step',
+      'Bulk contact import',
+      'API and signed webhooks',
+    ],
+  },
+  {
+    name: 'Business',
+    price: '$329',
+    annual: '$263',
+    cadence: '/ month',
+    summary: 'For established teams that need higher limits and advanced features.',
+    cta: 'Start free',
+    href: 'https://app.dakiyamail.com/register?plan=business',
+    highlight: true,
+    sendsPerDay: 15000,
+    save: '$792',
+    meter: 91,
+    // "Dedicated IPs" was the old wording. The mechanism is a whole worker
+    // machine bound to one org (plan.DedicatedWorkers > 0), and what that buys
+    // is reputation isolation, so the bullet says that instead.
+    features: [
+      'Everything in Grow',
+      'Sending kept apart from other customers',
+      'Team roles and permissions',
+      'Full audit log',
+      'Priority support',
+    ],
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    annual: 'Custom',
+    cadence: 'volume-based',
+    summary: 'Large orgs with custom volume and dedicated support.',
+    cta: 'Talk to sales',
+    href: '/contact/?topic=sales',
+    highlight: false,
+    sendsPerDay: Infinity,
+    save: '',
+    meter: 100,
+    features: [
+      'Everything in Business',
+      'Custom volume and contract',
+      'BYOK encryption · SSO / SAML',
+      'Custom data residency',
+      'Dedicated CSM',
+    ],
+  },
+];
+
+// SoftwareApplication schema for the product itself — helps Google understand
+// Dakiya Mail is a SaaS tool with a free tier, not just a marketing page.
+const softwareJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Dakiya Mail',
+  applicationCategory: 'BusinessApplication',
+  applicationSubCategory: 'Email deliverability and cold outreach',
+  operatingSystem: 'Web',
+  url: 'https://dakiyamail.com',
+  description:
+    'Email warmup and cold email platform. Warm new mailboxes, send cold outreach at scale, and protect sender reputation with per-mailbox safety caps and deliverability tracking.',
+  publisher: { '@id': 'https://dakiyamail.com#org' },
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+    description: 'Free plan available, with paid plans for higher volume.',
+  },
+};
+---
+<Layout
+  title="Open-Source Cold Email & Warmup Platform | Dakiya Mail"
+  description="Dakiya Mail is the open-source platform for cold email: warm your mailboxes, send campaigns, and triage every reply. Run it on our cloud or self-host the whole thing."
+  jsonLd={softwareJsonLd}
+>
+  <!-- ============================================================
+       HERO — deep sky with drifting clouds, white text,
+              dashboard mockup overlaps down into the white section
+  ============================================================ -->
+  <section class="relative isolate overflow-hidden">
+    <HeroAtmosphere />
+
+    <div class="container-page relative pt-16 md:pt-24 pb-8 md:pb-12 text-center">
+      <a href="https://github.com/bitan-del/dakiya-mail" target="_blank" rel="noopener noreferrer" class="group inline-flex max-w-full items-center gap-2 h-7 pl-1 pr-3 rounded-full bg-white/15 backdrop-blur border border-white/25 text-[11.5px] sm:text-[12px] text-white/95 whitespace-nowrap shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+        <span class="inline-flex items-center gap-1 h-5 px-1.5 shrink-0 rounded-full text-[10.5px] font-semibold uppercase tracking-[0.06em] bg-white text-[color:var(--sky-6)]">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.5 4.6-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+          Open source
+        </span>
+        <span class="hidden sm:inline">Self-host the platform · Apache 2.0</span>
+        <span class="sm:hidden">Apache 2.0</span>
+        <Icon name="arrowUpRight" size={12} class="shrink-0 text-white/80 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+      </a>
+
+      <h1 class="mt-8 md:mt-10 text-[44px] sm:text-6xl md:text-[72px] lg:text-[84px] font-semibold tracking-[-0.04em] leading-[0.98] text-white max-w-5xl mx-auto">
+        The largest open-source cold email platform.
+      </h1>
+
+      <p class="mt-6 text-[17px] md:text-[19px] text-white/80 max-w-2xl mx-auto leading-relaxed">
+        Dakiya Mail warms your mailboxes, sends your campaigns, and triages every reply. Run it on our cloud or self-host the whole thing on yours.
+      </p>
+
+      <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+        <a href="https://app.dakiyamail.com/register"
+           class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-medium text-[color:var(--sky-6)] bg-white hover:bg-white/95 transition-colors shadow-[0_10px_24px_-10px_rgba(8,47,73,0.55)]">
+          Start free
+          <Icon name="arrowRight" size={14} />
+        </a>
+        <a href="https://github.com/bitan-del/dakiya-mail" target="_blank" rel="noopener noreferrer"
+           class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-medium text-white bg-white/10 backdrop-blur border-2 border-white/40 hover:bg-white/20 transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.5 4.6-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+          Star on GitHub
+        </a>
+      </div>
+      <p class="mt-4 text-[12.5px] text-white/65">
+        Free forever when you self-host. When Dakiya Mail Cloud launches, a hosted workspace starts free with 10 mailboxes and warmup, and linked instances get their warmup run for them.
+      </p>
+    </div>
+
+    <!-- Dashboard mock — full width inside container, overlaps down -->
+    <div class="container-page relative pt-6 md:pt-10 -mb-10 md:-mb-[200px] lg:-mb-[240px]">
+      <div
+        class="relative rounded-[14px] overflow-hidden ring-1 ring-black/[0.08]"
+        style="box-shadow: var(--shadow-xl);"
+      >
+        <!-- Desktop layout, scaled uniformly to fit its width: full-size on
+             desktop, a clean shrunk-down version on mobile (same scale-to-fit
+             the feature windows use), so it always shows the real desktop app. -->
+        <div class="hero-fit relative w-full overflow-hidden">
+          <div class="hero-screen w-[1360px] absolute top-0 left-0 origin-top-left md:static md:w-full">
+            <DashboardMock />
+          </div>
+        </div>
+
+        <!-- Floating live notification on top of the mock -->
+        <div class="hidden md:block absolute bottom-5 right-5 w-[280px] rounded-[10px] bg-white shadow-[0_10px_30px_-10px_rgba(15,23,42,0.35)] ring-1 ring-slate-200 p-3 animate-toast-in" style="animation-delay: 1.2s; animation-fill-mode: backwards;">
+          <div class="flex items-start gap-2.5">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 grid place-items-center shrink-0">
+              <Icon name="reply" size={14} class="text-white" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-[11.5px] font-semibold text-slate-900">Positive reply</span>
+                <span class="text-[10px] text-slate-400 font-mono">just now</span>
+              </div>
+              <p class="text-[11.5px] text-slate-500 truncate mt-0.5">jenna@northwind.dev · Thursday 10am works for me…</p>
+              <div class="mt-1.5 flex items-center gap-1">
+                <span class="inline-flex items-center h-4 px-1.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">positive</span>
+                <span class="text-[10px] text-slate-400 font-mono">· assigned to AE</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Spacer for the overlap, then sections
+  ============================================================ -->
+  <div class="bg-white pt-12 md:pt-40">
+
+    <!-- ============================================================
+         Minimal facts strip — fills the white gap, low-key
+    ============================================================ -->
+    <section class="container-page pb-14 md:pb-20">
+      <div class="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-[12.5px] text-muted-foreground">
+        <span class="inline-flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" class="text-foreground/70"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.5 4.6-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+          <span>github.com/bitan-del/dakiya-mail</span>
+        </span>
+        <span class="text-foreground/20">·</span>
+        <span class="font-mono">Apache 2.0</span>
+        <span class="text-foreground/20">·</span>
+        <span>Run it on our cloud or your own infra</span>
+        <span class="text-foreground/20">·</span>
+        <span>Go · Rust · Elixir · React</span>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         FEATURE SHOWCASE — one section per feature, each on its own
+         background, with a pixel-faithful product window + an auto-playing
+         demo cursor. (Replaces the old warmup + abstract inbox/campaign bands.)
+    ============================================================ -->
+
+    <FeatureSection
+      eyebrow="Campaigns"
+      title="Sequences that branch on real behavior."
+      description="Build a multi-step flow on the canvas, then drag a connector from any step to fork on opens, clicks, and replies. It's the exact builder you'll use in the app."
+      side="right"
+      bg="sky"
+      url="app.dakiyamail.com/campaigns/q1-sales/sequences"
+      cursor="a"
+      callouts={[
+        { label: 'Drag to branch', text: 'Pull a link from a step to add an “if opened / clicked / replied” path. No match just stops.' },
+        { label: 'A/B at every step', text: 'Weighted subject + body variants; the stronger one keeps sending.' },
+        { label: 'Threaded follow-ups', text: 'Follow-ups reply on the previous subject, so they land in the same conversation.' },
+      ]}
+      cta={{ text: 'Explore campaigns', href: '/campaigns/' }}
+    >
+      <CampaignBuilderMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="Scheduling"
+      title="Send only inside their working hours."
+      description="A calendar-style editor with full per-day control. Draw a sending window on any weekday, drag to move it, grab an edge to resize. Everything snaps to 30 minutes."
+      side="left"
+      bg="light"
+      url="app.dakiyamail.com/campaigns/q1-sales/schedule"
+      cursor="b"
+      callouts={[
+        { label: 'Per-day windows', text: 'Independent windows for each day: mornings only, or split shifts. Several per day is fine.' },
+        { label: 'Timezone-aware', text: 'Sends follow the chosen timezone; worker IPs spread the volume naturally.' },
+        { label: 'One-click presets', text: 'Mon–Fri 9–5 in a tap, then fine-tune by dragging the blocks.' },
+      ]}
+      cta={{ text: 'See sending controls', href: '/sending/' }}
+    >
+      <ScheduleMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="Unified inbox"
+      title="Every reply, triaged the moment it lands."
+      description="Replies from every connected mailbox stream into one searchable queue. The classifier tags each one on arrival so you act on the labels that matter."
+      side="right"
+      bg="navy"
+      url="app.dakiyamail.com/unibox"
+      cursor="c"
+      callouts={[
+        { label: 'One queue, every mailbox', text: 'Scope by inbox, tag, or status: unread, awaiting reply, snoozed, scheduled.' },
+        { label: 'Classified on arrival', text: 'Positive, out-of-office, unsubscribe and bounce are labeled before you open them.' },
+        { label: 'Reply in place', text: 'Snooze, schedule, and send from the same pane, keyboard-first.' },
+      ]}
+      cta={{ text: 'Tour the inbox', href: '/inbox/' }}
+    >
+      <UniboxMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="Analytics"
+      title="Proof of what actually landed."
+      description="Deliverability across the whole workspace: sent, opens, clicks, replies and bounces, with per-campaign breakdowns and account health on one screen."
+      side="left"
+      bg="wallpaper"
+      url="app.dakiyamail.com/analytics"
+      cursor="d"
+      callouts={[
+        { label: 'Placement, not vanity', text: 'Track the metrics that move reputation, over 7, 30 or 90 days.' },
+        { label: 'Best performers, surfaced', text: 'Top campaigns and account health rank themselves as sends roll in.' },
+        { label: 'Shareable report card', text: 'Export a branded image of any range in a single tap.' },
+      ]}
+      cta={{ text: 'View analytics', href: '/analytics/' }}
+    >
+      <AnalyticsMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="AI assistant"
+      title="Draft the whole email from one line."
+      description="Describe what the email should do and the assistant writes it in your voice, merge fields and tone already in place. Edit inline, regenerate, or keep what works."
+      side="right"
+      bg="sky"
+      url="app.dakiyamail.com/campaigns/q1-sales/steps"
+      cursor="a"
+      callouts={[
+        { label: 'One-line briefs', text: 'Tell it the goal; get back a ready-to-send draft with variables filled in.' },
+        { label: 'Tone presets', text: 'Friendly, professional, concise, persuasive. Switch and regenerate in a click.' },
+        { label: 'Credits, no surprises', text: 'Each draft uses one writing credit, shown before you generate.' },
+      ]}
+      cta={{ text: 'Try the assistant', href: '/campaigns/' }}
+    >
+      <AIAssistantMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="Integrations"
+      title="Plug into the stack you already run."
+      description="Connect Gmail, Microsoft 365, your CRM, Slack and Zapier over OAuth. Tokens are encrypted at rest and every webhook is HMAC-signed."
+      side="left"
+      bg="light"
+      url="app.dakiyamail.com/integrations"
+      cursor="b"
+      callouts={[
+        { label: 'OAuth in two clicks', text: 'Authorize a provider and Dakiya Mail handles the rest. Revoke anytime.' },
+        { label: 'Signed webhooks', text: 'Every event is HMAC-signed and HTTPS by default, with SSRF protection.' },
+        { label: 'Encrypted at rest', text: 'Secrets are sealed with your data key, never stored in plaintext.' },
+      ]}
+      cta={{ text: 'Browse integrations', href: '/integrations/' }}
+    >
+      <IntegrationsMock />
+    </FeatureSection>
+
+    <!-- ============================================================
+         MOBILE APP — sky band with the iOS app in a half-cut iPhone,
+         air-glass tabs flipping between the real app's screens.
+    ============================================================ -->
+    <MobileAppShowcase />
+
+    <!-- ============================================================
+         AUTOMATIONS — full-width centerpiece: the live builder demo
+         running a test end to end. Deliberately breaks the side-by-side
+         rhythm so it reads as the headline act of the showcase.
+    ============================================================ -->
+    <AutomationsShowcase />
+
+    <FeatureSection
+      eyebrow="Developers"
+      title="An API you can build a product on."
+      description="Everything in the dashboard is a REST endpoint: scoped API keys, idempotent writes, opaque cursors, and HMAC-signed webhooks."
+      side="right"
+      bg="navy"
+      url="app.dakiyamail.com/api-keys"
+      cursor="c"
+      callouts={[
+        { label: 'Scoped keys', text: 'Mint read, write, or send-only keys per environment and rotate without downtime.' },
+        { label: 'Idempotent by default', text: 'Send an Idempotency-Key and retries are always safe.' },
+        { label: 'Webhooks that verify', text: 'Subscribe to events like contact.replied with signed payloads.' },
+      ]}
+      cta={{ text: 'Read the API docs', href: '/developers/' }}
+    >
+      <DeveloperMock />
+    </FeatureSection>
+
+    <FeatureSection
+      eyebrow="CRM"
+      title="From positive reply to closed won."
+      description="When a reply lands positive, Dakiya Mail opens the deal and pauses the sequence on its own. From there you get one timeline that threads every send, open, reply, and stage change back to the exact sequence step that started it."
+      side="left"
+      bg="wallpaper"
+      url="app.dakiyamail.com/crm/deals"
+      cursor="d"
+      callouts={[
+        { label: 'Born from the reply', text: 'A reply classified positive in the unibox opens the deal and pauses the sequence, so nothing keeps sending to someone who already said yes.' },
+        { label: 'One timeline, traced to the send', text: 'Every send, open, reply, and stage change lands on the deal, each tagged with the sequence step and mailbox it came from.' },
+        { label: 'Pipeline and forecast in one view', text: 'Move deals across your stages on the board while value, weighted total, and probability stay current on the record.' },
+        { label: 'Tasks with a type and an owner', text: 'A positive reply spins up a typed follow-up task on the deal, assigned to a teammate with a due date, so the next step never slips.' },
+      ]}
+      cta={{ text: 'See the CRM', href: '/crm/' }}
+    >
+      <CRMMock />
+    </FeatureSection>
+
+    <!-- Changelog, open-source CTA, and Go templating sections after the feature showcase -->
+    <ChangelogShowcase />
+    <OpenSourceShowcase />
+    <TemplatingShowcase />
+
+    <!-- ============================================================
+         COMPARE — serious data table
+    ============================================================ -->
+    <section class="container-page py-20 md:py-28">
+      <div class="grid lg:grid-cols-12 gap-12 lg:gap-16 mb-10">
+        <div class="lg:col-span-5">
+          <div class="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-3">How we differ</div>
+          <h2 class="text-[34px] md:text-[44px] font-semibold tracking-[-0.025em] leading-[1.08] text-heading">
+            Defaults that protect reputation.
+          </h2>
+        </div>
+        <div class="lg:col-span-7">
+          <p class="text-[15.5px] text-foreground/75 leading-relaxed">
+            Cold-email platforms typically optimise for volume. Dakiya Mail optimises for sender reputation. The numbers below ship as defaults and the system enforces them.
+          </p>
+        </div>
+      </div>
+
+      <!-- Six guardrails, drawn instead of written, joined into one panel the
+           way pricing is: shared 1px dividers, one ring, no gaps. -->
+      <div class="diff-panel mt-4 rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden shadow-[0_18px_50px_-28px_rgba(15,23,42,0.32)]">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3">
+
+        <!-- 1 · Daily cap: our fill stops at the cap; the rest of the track
+             is where others go. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)]">
+          <div class="h-[88px] flex flex-col justify-center">
+            <div class="relative h-2 rounded-full bg-slate-200/70">
+              <span class="bar-fill absolute inset-y-0 left-0 rounded-full bg-[color:var(--brand)]" data-target="25%"></span>
+              <span class="absolute left-[25%] top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-[color:var(--sky-6)]"></span>
+            </div>
+            <div class="relative mt-2 h-4 text-[10px] font-mono">
+              <span class="absolute left-[25%] -translate-x-1/2 text-[color:var(--brand-strong)] font-semibold whitespace-nowrap">50, our cap</span>
+              <span class="absolute right-0 text-muted-foreground/60">200+, elsewhere</span>
+            </div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">50 a day per mailbox</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">The default cap. Raising it takes proof, not a request.</p>
+        </div>
+
+        <!-- 2 · Spacing: even dots vs a burst. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)] border-t sm:border-t-0 sm:border-l">
+          <div class="h-[88px] flex flex-col justify-center gap-4">
+            <div>
+              <div class="flex items-center justify-between">
+                {[0, 1, 2, 3, 4, 5].map(() => <span class="w-2 h-2 rounded-full bg-[color:var(--brand)]"></span>)}
+              </div>
+              <div class="mt-1.5 text-[10px] font-mono text-[color:var(--brand-strong)] font-semibold">10 minutes apart, always</div>
+            </div>
+            <div>
+              <div class="flex items-center gap-[3px]">
+                {[0, 1, 2, 3, 4, 5].map(() => <span class="w-2 h-2 rounded-full bg-slate-300"></span>)}
+              </div>
+              <div class="mt-1.5 text-[10px] font-mono text-muted-foreground/60">bursts, elsewhere</div>
+            </div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">Sends are spaced out</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">600 seconds minimum between two emails from one mailbox.</p>
+        </div>
+
+        <!-- 3 · Quarantine line: one axis, two markers. The whole argument. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)] border-t lg:border-t-0 lg:border-l">
+          <div class="h-[88px] flex flex-col justify-center">
+            <div class="relative">
+              <div class="h-2 rounded-full" style="background: linear-gradient(90deg, #34d399 0%, #fbbf24 35%, #f43f5e 85%);"></div>
+              <span class="absolute left-[10%] -translate-x-1/2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white ring-[2.5px] ring-[color:var(--sky-6)]"></span>
+              <span class="absolute left-[80%] -translate-x-1/2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white ring-[2.5px] ring-slate-300"></span>
+            </div>
+            <div class="relative mt-2.5 h-8 text-[10px] font-mono">
+              <span class="absolute left-[10%] -translate-x-1/2 text-center text-[color:var(--brand-strong)] font-semibold leading-tight">10%<br />we quarantine</span>
+              <span class="absolute left-[80%] -translate-x-1/2 text-center text-muted-foreground/60 leading-tight">80%<br />others react</span>
+            </div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">Acts before it hurts</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">A mailbox is pulled at 10% spam placement, not 80%.</p>
+        </div>
+
+        <!-- 4 · Warmup ramp: the staircase. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)] border-t sm:border-l lg:border-l-0">
+          <div class="h-[88px] flex flex-col justify-end">
+            <div class="flex items-end gap-[4px] h-[60px]">
+              {diffRamp.map((v) => (
+                <span class="flex-1 rounded-t-[3px] bg-gradient-to-t from-sky-500/90 to-sky-300/90" style={`height:${v}%`}></span>
+              ))}
+            </div>
+            <div class="mt-1.5 flex justify-between text-[10px] font-mono">
+              <span class="text-[color:var(--brand-strong)] font-semibold">10 / day</span>
+              <span class="text-[color:var(--brand-strong)] font-semibold">40 / day</span>
+            </div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">Warmup climbs by one</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">One more email per day. Elsewhere: full volume on day one.</p>
+        </div>
+
+        <!-- 5 · Auth checks: three green pills. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)] border-t lg:border-l">
+          <div class="h-[88px] flex flex-col justify-center gap-2">
+            <div class="flex flex-wrap gap-1.5">
+              {['SPF', 'DKIM', 'DMARC'].map((c) => (
+                <span class="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[10.5px] font-mono font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+                  <Icon name="check" size={10} strokeWidth={2.5} />{c}
+                </span>
+              ))}
+            </div>
+            <div class="text-[10px] font-mono text-muted-foreground/60">elsewhere: paste DNS records, hope</div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">Verified on connect</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">A mailbox does not send until its auth records check out.</p>
+        </div>
+
+        <!-- 6 · Open source: the actual constant. -->
+        <div class="p-5 md:p-6 border-[color:var(--border)] border-t sm:border-l">
+          <div class="h-[88px] flex items-center">
+            <div class="w-full rounded-[10px] bg-[#0c1224] ring-1 ring-white/10 px-3.5 py-3 font-mono text-[11.5px] leading-[1.8]">
+              <div class="text-white/35">// constants.go</div>
+              <div><span class="text-sky-300">CampaignLimitDefault</span><span class="text-white/60"> = </span><span class="text-emerald-300">50</span></div>
+            </div>
+          </div>
+          <div class="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-heading">Read the defaults</div>
+          <p class="mt-1 text-[12.5px] text-foreground/65 leading-snug">Every number on this page is open source. Elsewhere: trust us.</p>
+        </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============================================================
+         BENTO
+    ============================================================ -->
+    <BentoGrid />
+
+
+    <!-- ============================================================
+         PRICING — annual default, premium segmented toggle
+    ============================================================ -->
+    <!-- Sky hero matching the rest of the site's product pages. The
+         cards below float over the sky-to-white boundary via -mt-32 / -mt-40
+         the same way /pricing handles it. -->
+    <section class="relative isolate overflow-hidden">
+      <HeroAtmosphere />
+      <div class="container-page relative pt-16 md:pt-20 pb-44 md:pb-52 text-center">
+        <div class="text-[10.5px] uppercase tracking-[0.22em] font-mono text-white/75">
+          Pricing
+        </div>
+        <h2 class="mt-4 text-[44px] sm:text-[56px] md:text-[68px] font-semibold tracking-[-0.035em] leading-[1.02] text-white max-w-3xl mx-auto">
+          Pay for what you send.
+        </h2>
+        <p class="mt-5 text-[16.5px] md:text-[17px] text-white/80 leading-relaxed max-w-xl mx-auto">
+          The number on each card is daily send volume. Warmup, the unified inbox, analytics, CRM and the API are in every paid plan.
+        </p>
+
+        <!-- Translucent toggle that reads as a control panel sitting on the sky. -->
+        <div class="mt-9 inline-flex items-center gap-3" id="billing-toggle">
+          <div class="relative inline-flex items-center p-1 rounded-full bg-white/10 backdrop-blur ring-1 ring-white/25 text-[13px] font-medium shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+            <span id="toggle-thumb" class="absolute top-1 bottom-1 rounded-full bg-white transition-all duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]" style="left: 116px; width: 112px; box-shadow: 0 6px 18px -4px rgba(0,0,0,0.25);"></span>
+            <button data-billing="monthly" class="relative h-9 px-5 rounded-full text-white/70 transition-colors min-w-[112px]">Monthly</button>
+            <button data-billing="annual"  class="relative h-9 px-5 rounded-full text-[color:var(--sky-7)] transition-colors min-w-[112px]">
+              <span class="inline-flex items-center gap-1.5">Annual</span>
+            </button>
+          </div>
+          <span class="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11.5px] font-semibold bg-white/10 backdrop-blur text-white border border-white/30">
+            Save 20%
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- White section pulled up under the hero. Cards float over the boundary. -->
+    <section class="relative -mt-32 md:-mt-40 pb-16 md:pb-20 z-10">
+      <div class="container-page">
+
+        <!-- One panel, four joined columns sharing 1px dividers. The featured
+             plan is marked by a tint and a top accent rule rather than by
+             elevation, so the row stays a single connected surface. -->
+        <div class="pricing-grid mt-12 rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden shadow-[0_18px_50px_-28px_rgba(15,23,42,0.32)]">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            {plans.map((p, idx) => (
+            <div
+              class:list={[
+                'pricing-card relative flex flex-col p-6 border-[color:var(--border)]',
+                p.highlight && 'bg-[color:var(--surface-2)]',
+                idx === 0 ? ''
+                  : idx === 1 ? 'border-t sm:border-t-0 sm:border-l'
+                  : idx === 2 ? 'border-t lg:border-t-0 lg:border-l'
+                  : 'border-t lg:border-t-0 sm:border-l',
+              ]}
+            >
+              {p.highlight && (
+                <span class="absolute inset-x-0 top-0 h-[3px] bg-[color:var(--brand)]"></span>
+              )}
+
+              <div class="relative flex flex-col h-full">
+                <div class="flex items-center justify-between gap-2 h-6">
+                  <h3 class={`text-[13px] font-semibold uppercase tracking-[0.12em] ${p.highlight ? 'text-[color:var(--brand)]' : 'text-heading'}`}>{p.name}</h3>
+                  {p.highlight && (
+                    <span class="inline-flex items-center h-[22px] px-2 rounded-full text-[9.5px] font-semibold uppercase tracking-[0.10em] bg-[color:var(--brand)] text-white shadow-[0_4px_12px_-2px_rgba(2,132,199,0.55)] whitespace-nowrap">
+                      Most popular
+                    </span>
+                  )}
+                </div>
+                <p class="mt-2 text-[12.5px] text-muted-foreground leading-snug min-h-[36px]">{p.summary}</p>
+
+                <div class="mt-5 flex items-baseline gap-2">
+                  <span class="text-[44px] font-semibold tracking-[-0.04em] text-heading leading-none flex items-baseline">
+                    <span class="plan-price relative inline-block overflow-hidden h-[44px] align-baseline" data-monthly={p.price} data-annual={p.annual}>
+                      <span class="plan-price-inner block leading-[44px]" style="transform: translateY(0)">{p.annual}</span>
+                    </span>
+                  </span>
+                  {p.save && (
+                    <span class="plan-swap text-[15px] text-muted-foreground/60 line-through" data-monthly="" data-annual={p.price}>{p.price}</span>
+                  )}
+                </div>
+                <p class="mt-2 text-[11.5px] text-muted-foreground">
+                  <span class="cadence" data-monthly="/ month · billed monthly" data-annual="/ month · billed yearly">/ month · billed yearly</span>
+                </p>
+                {/* Rendered even when empty so every card's CTA sits on the
+                    same line; Enterprise has no yearly saving to show. */}
+                <p class="mt-1.5 h-[18px]">
+                  {p.save && (
+                    <span
+                      class="plan-swap inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                      data-monthly=""
+                      data-annual={`Save ${p.save} a year`}
+                    >Save {p.save} a year</span>
+                  )}
+                </p>
+
+                {/* Daily send volume, the thing each tier actually buys. */}
+                <div class="mt-5">
+                  <div class="flex items-baseline justify-between text-[11px] mb-1.5">
+                    <span class="font-mono text-heading">
+                      {p.sendsPerDay === Infinity ? '15,000+' : p.sendsPerDay.toLocaleString()}
+                    </span>
+                    <span class="text-muted-foreground">sends / day</span>
+                  </div>
+                  {/* Static width: no .bar-fill hook, so nothing animates it. */}
+                  <div class={`h-1 rounded-full overflow-hidden ${p.highlight ? 'bg-white' : 'bg-[color:var(--surface-2)]'}`}>
+                    <span
+                      class={`block h-full rounded-full ${p.highlight ? 'bg-[color:var(--brand)]' : 'bg-[color:var(--border-strong)]'}`}
+                      style={`width:${p.meter}%`}
+                    ></span>
+                  </div>
+                </div>
+
+                <a
+                  href={p.href}
+                  class={`mt-6 inline-flex h-11 px-4 items-center justify-center w-full rounded-[10px] text-[14px] font-medium transition-colors ${
+                    p.highlight
+                      ? 'bg-[color:var(--brand)] text-white hover:bg-[color:var(--brand-strong)] shadow-[0_10px_24px_-10px_rgba(2,132,199,0.65)]'
+                      : 'bg-foreground text-background hover:bg-foreground/85'
+                  }`}
+                >
+                  {p.cta}
+                </a>
+
+                <div class="my-5 h-px bg-[color:var(--border)]"></div>
+                <ul class="space-y-2.5 text-[13px] text-foreground/90">
+                  {p.features.map((f) => (
+                    <li class="flex items-start gap-2">
+                      <span class={`mt-[3px] shrink-0 w-4 h-4 rounded-full inline-flex items-center justify-center ${p.highlight ? 'bg-[color:var(--brand)] text-white' : 'bg-[color:var(--surface-2)] text-foreground/55'}`}>
+                        <Icon name="check" size={10} strokeWidth={2.5} />
+                      </span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            ))}
+          </div>
+        </div>
+
+        <div class="mt-12 flex flex-wrap items-center justify-center gap-2 text-[13px] text-muted-foreground">
+          <span>All plans include warmup, sending, inbox, analytics and CRM.</span>
+          <a href="/pricing/" class="inline-flex items-center gap-1 font-medium text-[color:var(--brand)] hover:text-[color:var(--brand-strong)]">
+            See full comparison <Icon name="arrowRight" size={12} />
+          </a>
+        </div>
+        <p class="mt-3 text-center text-[12.5px] text-muted-foreground/85 max-w-xl mx-auto leading-relaxed">
+          Self-hosting is free. When Dakiya Mail Cloud launches, link your instance and we warm up to 10 of your mailboxes in the shared pool at no cost, unlimited for $15 a month.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         FINAL CTA — deep sky band echoing the hero
+    ============================================================ -->
+    <section class="relative isolate overflow-hidden">
+      <div class="sky-base" aria-hidden="true" style="opacity:0.95"></div>
+      <div class="sky-breathe" aria-hidden="true"></div>
+      <div class="sky-haze-bottom" aria-hidden="true"></div>
+
+      <div class="container-page relative py-16 md:py-20 text-center">
+        <h2 class="text-[36px] md:text-[56px] lg:text-[64px] font-semibold tracking-[-0.035em] leading-[1.02] text-white mx-auto max-w-3xl">
+          Send cold email people actually open.
+        </h2>
+        <p class="mt-5 text-[16px] text-white/75 max-w-xl mx-auto">
+          Connect a mailbox, warm it up, send your first campaign today.
+        </p>
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a href="https://app.dakiyamail.com/register"
+             class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-medium bg-white text-[color:var(--sky-6)] hover:bg-white/95">
+            Start free <Icon name="arrowRight" size={14} />
+          </a>
+          <a href="https://github.com/bitan-del/dakiya-mail" target="_blank" rel="noopener noreferrer"
+             class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-medium bg-white/10 backdrop-blur border-2 border-white/40 text-white hover:bg-white/20">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.5 4.6-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+            Or self-host it
+          </a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================
+       Realtime: ticking counters + bar grow + toast in
+  ============================================================ -->
+  <style is:global>
+    @keyframes bar-grow {
+      from { width: 0%; }
+      to   { width: var(--target, 50%); }
+    }
+    .animate-bar-grow {
+      width: var(--target, 50%);
+      animation: bar-grow 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    @keyframes ring-fill {
+      from { stroke-dasharray: 0 100; }
+    }
+    .animate-ring-fill { animation: ring-fill 1.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .animate-toast-in { animation: toast-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+    /* ── Continuous (never-ending) animations ───────────────────── */
+
+    /* Activity ribbon marquee — scrolls forever */
+    @keyframes marquee-loop {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+    .marquee-track {
+      animation: marquee-loop 60s linear infinite;
+      width: max-content;
+    }
+    .marquee-mask {
+      mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+      overflow: hidden;
+    }
+
+    /* Inbox reply stream — scrolls vertically forever */
+    @keyframes reply-scroll {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-50%); }
+    }
+    .reply-track {
+      animation: reply-scroll 50s linear infinite;
+    }
+
+    /* Warmup activity feed — same continuous vertical scroll, slower */
+    @keyframes warmup-feed-scroll {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-50%); }
+    }
+    .warmup-feed-track {
+      animation: warmup-feed-scroll 45s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .warmup-feed-track { animation: none; }
+    }
+
+    /* Slower marquee — used by the campaign step timeline */
+    .marquee-track-slow {
+      animation: marquee-loop 60s linear infinite;
+    }
+
+    /* Worker send spark — slides across bar forever */
+    @keyframes send-spark-anim {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .send-spark {
+      animation: send-spark-anim 3s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    }
+
+
+    /* Scroll-in fades — only applied once .js-ready is set on <html>,
+       so content stays visible if JS / motion fails to load. */
+    html.js-ready .fade-in {
+      opacity: 0;
+      transform: translateY(18px);
+      will-change: opacity, transform;
+    }
+    html.js-ready .fade-in.is-in {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html.js-ready .fade-in,
+      html.js-ready .fade-in.is-in {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+    }
+
+    /* Pause the demo cursor while a visitor is inspecting a feature window. */
+    .feature-window:hover .demo-cursor,
+    .feature-window:hover .demo-cursor-ripple {
+      animation-play-state: paused;
+    }
+
+  </style>
+  <script is:inline>
+    // Tag the document so the CSS above can hide fade-in targets only when JS is alive.
+    document.documentElement.classList.add('js-ready');
+  </script>
+
+  <script>
+    import { animate, inView, stagger } from 'motion';
+
+    // ── Live ticker counters (sends today etc.) ───────────────────────
+    const nf = new Intl.NumberFormat();
+    document.querySelectorAll('[data-live-counter]').forEach((el) => {
+      let v = parseInt(el.getAttribute('data-from') || '0', 10);
+      const max = parseInt(el.getAttribute('data-to') || '99999', 10);
+      const tMin = parseInt(el.getAttribute('data-tick-min') || '1200', 10);
+      const tMax = parseInt(el.getAttribute('data-tick-max') || '3200', 10);
+      const sMin = parseInt(el.getAttribute('data-step-min') || '1', 10);
+      const sMax = parseInt(el.getAttribute('data-step-max') || '3', 10);
+      const tick = () => {
+        v = Math.min(max, v + Math.floor(Math.random() * (sMax - sMin + 1)) + sMin);
+        el.textContent = nf.format(v);
+        if (v < max) setTimeout(tick, Math.random() * (tMax - tMin) + tMin);
+      };
+      setTimeout(tick, 400);
+    });
+
+    // ── Scroll-in fades ──────────────────────────────────────────────
+    // CSS hides .fade-in elements (with html.js-ready). We tag every
+    // motion-target with .fade-in and stagger their is-in toggles
+    // when they enter the viewport. If JS errors out, CSS keeps them
+    // visible (the .js-ready class would never have been set).
+    const tag = (selector, stag = 0.08) => {
+      const els = Array.from(document.querySelectorAll(selector));
+      els.forEach((el) => el.classList.add('fade-in'));
+      if (!els.length) return;
+      els.forEach((el, idx) => {
+        inView(el, () => {
+          setTimeout(() => el.classList.add('is-in'), idx * stag * 1000);
+        }, { amount: 0.12 });
+      });
+    };
+    // The panel reveals as one surface; staggering the joined columns would
+    // pop them in one by one inside their own shared border.
+    tag('.pricing-grid',    0);
+    tag('.diff-panel',      0);
+    tag('.step-card',       0.10);
+    tag('.feature-card',    0.10);
+    tag('.metric-cell',     0.06);
+
+    // ── Bar grow on scroll ──────────────────────────────────────────
+    document.querySelectorAll('.bar-fill').forEach((el) => {
+      el.style.width = '0%';
+      inView(el, () => {
+        const w = el.getAttribute('data-target') || '50%';
+        animate(el, { width: ['0%', w] }, { duration: 1.2, ease: [0.22, 1, 0.36, 1] });
+      }, { amount: 0.4 });
+    });
+
+    // ── Ring fill on scroll ──────────────────────────────────────────
+    document.querySelectorAll('.ring-fill').forEach((el) => {
+      inView(el, () => {
+        animate(el, { strokeDasharray: ['0 100', '96 100'] }, { duration: 1.4, ease: [0.22, 1, 0.36, 1] });
+      }, { amount: 0.4 });
+    });
+
+    // ── Floating toast in the hero mock ──────────────────────────────
+    const toast = document.querySelector('.hero-toast');
+    if (toast) {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(12px) scale(0.96)';
+      setTimeout(() => {
+        animate(
+          toast,
+          { opacity: [0, 1], transform: ['translateY(12px) scale(0.96)', 'translateY(0px) scale(1)'] },
+          { duration: 0.7, ease: [0.22, 1, 0.36, 1] },
+        );
+      }, 1300);
+    }
+
+    // ── Sparkline draw-in (path stroke length) ───────────────────────
+    document.querySelectorAll('.sparkline-path').forEach((el) => {
+      const len = el.getTotalLength?.() ?? 200;
+      el.style.strokeDasharray = `${len}`;
+      el.style.strokeDashoffset = `${len}`;
+      inView(el, () => {
+        animate(el, { strokeDashoffset: [len, 0] }, { duration: 1.6, ease: [0.22, 1, 0.36, 1] });
+      }, { amount: 0.4 });
+    });
+
+    // ── Pricing billing toggle (Monthly ↔ Annual, annual default) ───
+    //    Thumb still slides with motion.dev. Prices swap with the same
+    //    slide-up rebound animation /pricing uses on its plan numbers.
+    const toggle = document.getElementById('billing-toggle');
+    const thumb  = document.getElementById('toggle-thumb');
+    if (toggle && thumb) {
+      const btns = toggle.querySelectorAll('button[data-billing]');
+
+      // Slide-up swap on a single price number. Phase 1 lifts and fades
+      // the old value out; phase 2 drops the new value in from below with
+      // a subtle overshoot.
+      const animatePrice = (el, newValue) => {
+        const inner = el.querySelector('.plan-price-inner');
+        if (!inner) return;
+        if (inner.textContent === newValue) return;
+        inner.style.transition = 'transform 220ms cubic-bezier(0.4,0,0.2,1), opacity 220ms cubic-bezier(0.4,0,0.2,1)';
+        inner.style.transform  = 'translateY(-100%)';
+        inner.style.opacity    = '0';
+        setTimeout(() => {
+          inner.style.transition = 'none';
+          inner.style.transform  = 'translateY(100%)';
+          inner.textContent      = newValue;
+          inner.offsetHeight; // reflow
+          inner.style.transition = 'transform 320ms cubic-bezier(0.34,1.56,0.64,1), opacity 220ms ease-out';
+          inner.style.transform  = 'translateY(0)';
+          inner.style.opacity    = '1';
+        }, 220);
+      };
+
+      const apply = (mode, animated = true) => {
+        const btn = toggle.querySelector(`button[data-billing="${mode}"]`);
+        if (!btn) return;
+        const left  = btn.offsetLeft;
+        const width = btn.offsetWidth;
+        if (animated) {
+          animate(thumb, { left: `${left}px`, width: `${width}px` }, { duration: 0.35, ease: [0.22, 1, 0.36, 1] });
+        } else {
+          thumb.style.left = `${left}px`;
+          thumb.style.width = `${width}px`;
+        }
+        // Active button reads as sky-dark on the white pill thumb;
+        // inactive reads as soft white on the translucent track.
+        btns.forEach((b) => {
+          if (b.getAttribute('data-billing') === mode) {
+            b.classList.remove('text-white/70');
+            b.classList.add('text-[color:var(--sky-7)]');
+          } else {
+            b.classList.add('text-white/70');
+            b.classList.remove('text-[color:var(--sky-7)]');
+          }
+        });
+        document.querySelectorAll('.plan-price').forEach((el) => {
+          const next = el.getAttribute(`data-${mode}`) || '';
+          if (!next) return;
+          if (!animated) {
+            const inner = el.querySelector('.plan-price-inner');
+            if (inner) inner.textContent = next;
+            return;
+          }
+          animatePrice(el, next);
+        });
+        // Struck monthly price and the yearly-saving badge. Unlike .cadence
+        // these are empty on monthly, so an empty value has to clear them
+        // rather than be treated as "nothing to do".
+        document.querySelectorAll('.plan-swap').forEach((el) => {
+          const next = el.getAttribute(`data-${mode}`) || '';
+          el.textContent = next;
+          el.classList.toggle('hidden', next === '');
+        });
+        // Cadence text gets a soft fade-swap so it never just snaps.
+        document.querySelectorAll('.cadence').forEach((el) => {
+          const next = el.getAttribute(`data-${mode}`) || '';
+          if (!next) return;
+          if (!animated) { el.textContent = next; return; }
+          el.style.transition = 'opacity 180ms ease-out';
+          el.style.opacity    = '0';
+          setTimeout(() => {
+            el.textContent = next;
+            el.style.opacity = '1';
+          }, 180);
+        });
+      };
+      btns.forEach((b) => b.addEventListener('click', () => apply(b.getAttribute('data-billing'))));
+      // Default selection — annual, no animation on initial paint
+      requestAnimationFrame(() => apply('annual', false));
+    }
+  </script>
+
+  <script>
+    // Hero dashboard mock: render the full desktop layout, uniformly scaled to
+    // fit its container at every width (full-size on desktop, a clean shrunk
+    // miniature on mobile) - the same scale-to-fit the feature windows use.
+    // Below md (768px) the desktop mock is shown at a readable scale and bleeds
+    // off the right edge - the way Linear / Stripe / Vercel show a desktop app
+    // shot on a phone, instead of shrinking the whole thing to a microscopic
+    // full-width thumbnail. HERO_MOBILE_VISIBLE = how many of the mock's design
+    // px fill the phone width; the rest crops off the right. At md+ it falls
+    // back to the fluid desktop layout (CSS: md:static md:w-full), so desktop
+    // stays full-size and overlaps the section below.
+    const HERO_MOBILE_VISIBLE = 720;
+    function fitHero(screen: HTMLElement) {
+      const box = screen.parentElement as HTMLElement | null;
+      if (!box) return;
+      if (window.innerWidth >= 768) {
+        screen.style.transform = '';
+        box.style.height = '';
+        return;
+      }
+      const s = box.clientWidth / HERO_MOBILE_VISIBLE;
+      screen.style.transform = `scale(${s})`;
+      box.style.height = `${screen.offsetHeight * s}px`;
+    }
+    function runHero() {
+      document.querySelectorAll<HTMLElement>('.hero-screen').forEach((s) => fitHero(s));
+    }
+    document.querySelectorAll<HTMLElement>('.hero-screen').forEach((screen) => {
+      if (screen.parentElement) new ResizeObserver(() => fitHero(screen)).observe(screen.parentElement);
+    });
+    runHero();
+    requestAnimationFrame(runHero);
+    window.addEventListener('load', runHero);
+    window.addEventListener('resize', runHero);
+  </script>
+</Layout>

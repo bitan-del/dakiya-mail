@@ -1,0 +1,442 @@
+---
+title: Endpoint scope map
+description: Every endpoint, which auth types it accepts, and which permission it requires.
+---
+
+This page is the source of truth for what an API key can and cannot reach. Every route in the backend falls into one of three buckets:
+
+- **API key accepted**: works with both a JWT (dashboard user) and an API key with the listed permission.
+- **JWT only**: never reachable via an API key. Used for billing, governance, websocket bootstrap, danger-zone destruction, the OAuth onboarding flow, and admin tools.
+- **Public**: no auth required (webhooks with signature verification, health check, OAuth bouncer pages).
+
+When an endpoint says "JWT permission: X / API permission: Y", the dual-auth middleware checks the relevant one based on which credential the caller used.
+
+All paths below are relative to the versioned base URL `https://api.dakiyamail.com/v1` (for example `/campaigns` is `https://api.dakiyamail.com/v1/campaigns`). See [versioning](/api/) for details.
+
+## API key accepted
+
+### Emails
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/emails` | `READ_EMAILS` |
+| GET | `/emails/:id` | `READ_EMAILS` |
+| PATCH | `/emails/:id` | `WRITE_EMAILS` |
+| PATCH | `/emails/tags` | `WRITE_EMAILS` |
+| GET | `/emails/:id/track` | `READ_EMAILS` |
+| PATCH | `/emails/:id/track` | `WRITE_EMAILS` |
+| POST | `/emails/:id/track/verify` | `WRITE_EMAILS` |
+| GET | `/emails/:id/sync` | `READ_EMAILS` |
+| GET | `/emails/:id/auth-check` | `READ_EMAILS` |
+| POST | `/emails/:id/auth-check` | `WRITE_EMAILS` |
+| GET | `/emails/:id/behavior` | `READ_EMAILS` |
+| PUT | `/emails/:id/behavior` | `WRITE_EMAILS` |
+| GET | `/emails/:id/behavior/plan` | `READ_EMAILS` |
+| POST | `/emails/:id/hold` | `WRITE_EMAILS` |
+| POST | `/emails/:id/release` | `WRITE_EMAILS` |
+| DELETE | `/emails/:id` | `WRITE_EMAILS` |
+| POST | `/emails/:id/send` | `SEND_CAMPAIGNS` |
+
+### Campaigns and sequences
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/campaigns` | `READ_CAMPAIGNS` |
+| GET | `/campaigns-overview` | `READ_CAMPAIGNS` |
+| POST | `/campaigns` | `WRITE_CAMPAIGNS` |
+| GET | `/campaigns/:id` | `READ_CAMPAIGNS` |
+| PATCH | `/campaigns/:id` | `WRITE_CAMPAIGNS` |
+| DELETE | `/campaigns/:id` | `WRITE_CAMPAIGNS` |
+| POST | `/campaigns/:id/duplicate` | `WRITE_CAMPAIGNS` |
+| GET | `/campaigns/:id/advanced` | `READ_CAMPAIGNS` |
+| PATCH | `/campaigns/:id/advanced` | `WRITE_CAMPAIGNS` |
+| GET | `/campaigns/:id/ab-variants` | `READ_CAMPAIGNS` |
+| POST | `/campaigns/:id/ab-variants` | `WRITE_CAMPAIGNS` |
+| PATCH | `/campaigns/:id/ab-variants/:variantId` | `WRITE_CAMPAIGNS` |
+| DELETE | `/campaigns/:id/ab-variants/:variantId` | `WRITE_CAMPAIGNS` |
+| GET | `/campaigns/:id/ab-analysis` | `READ_ANALYTICS` |
+| GET | `/campaigns/:id/preflight` | `SEND_CAMPAIGNS` |
+| POST | `/campaigns/:id/preflight` | `SEND_CAMPAIGNS` |
+| POST | `/campaigns/:id/test-email` | `SEND_CAMPAIGNS` |
+| POST | `/campaigns/:id/start` | `SEND_CAMPAIGNS` |
+| POST | `/campaigns/:id/stop` | `SEND_CAMPAIGNS` |
+| GET | `/campaigns/:id/logs` | `READ_CAMPAIGNS` |
+| GET/POST/PATCH/DELETE | `/campaigns/:id/steps[/:sid]` | `READ_CAMPAIGNS` for GET, `WRITE_CAMPAIGNS` otherwise |
+| PATCH | `/campaigns/:id/step-layout` | `WRITE_CAMPAIGNS` |
+| POST | `/generation/write` | `WRITE_CAMPAIGNS` |
+| POST | `/generation/edit` | `WRITE_CAMPAIGNS` |
+| POST | `/generation/ai-variable` | `WRITE_CAMPAIGNS` |
+
+### Contacts
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| POST | `/contacts/search` | `READ_CONTACTS` |
+| GET | `/contacts/custom-fields` | `READ_CONTACTS` |
+| GET | `/contacts/lookup` | `READ_CONTACTS` |
+| POST | `/contacts` | `WRITE_CONTACTS` |
+| DELETE | `/contacts` | `BULK_CONTACTS` |
+| PATCH | `/contacts` | `BULK_CONTACTS` |
+| GET | `/contacts/:id` | `READ_CONTACTS` |
+| PATCH | `/contacts/:id` | `WRITE_CONTACTS` |
+| DELETE | `/contacts/:id` | `WRITE_CONTACTS` |
+| GET | `/contacts/:id/emails` | `READ_CONTACTS` |
+| GET | `/contacts/:id/timeline` | `READ_CONTACTS` |
+| GET | `/contacts/:id/campaigns` | `READ_CONTACTS` |
+| POST | `/contacts/export` | `READ_CONTACTS` |
+| POST | `/contacts/import/preview` | `WRITE_CONTACTS` |
+| POST | `/contacts/import/commit` | `BULK_CONTACTS` |
+| GET | `/contacts/:id/notes` | `READ_CONTACTS` |
+| POST | `/contacts/:id/notes` | `WRITE_CONTACTS` |
+| PATCH | `/contacts/:id/notes/:noteId` | `WRITE_CONTACTS` |
+| DELETE | `/contacts/:id/notes/:noteId` | `WRITE_CONTACTS` |
+| GET | `/contacts/:id/activities` | `READ_CONTACTS` |
+| GET | `/contacts/:id/deals` | `READ_CRM` |
+| POST | `/contacts/:id/research` | `AI_RESEARCH` |
+| GET | `/contacts/:id/research` | `AI_RESEARCH` |
+| POST | `/contacts/research/batch` | `AI_RESEARCH` |
+
+`GET /contacts/custom-fields` lists the distinct custom-field keys used across your contacts (frequency-ranked), for building personalization pickers. It returns a flat string array under `data`, capped at 200 keys.
+
+The import pair is two steps over the same file: preview parses it and suggests a column mapping, commit applies the mapping you chose. Commit takes the stricter `BULK_CONTACTS` scope because one call writes up to 50,000 rows. A mapping problem, an unusable custom-field name or no `email` column, is a `400` on the whole request; see [contacts](/api/reference/contacts/).
+
+AI contact research charges credits (2 per run, billable even when it finds nothing) and only saves cited findings. See the [AI contact research](/guides/ai-contact-research/) guide. The batch endpoint accepts up to 500 contact ids and drains in the background.
+
+### Lead sync
+
+Saved Google Sheets sources that upsert contacts on demand. Gated under the contact write scope because a sync ultimately writes contacts. Nothing syncs on a timer: a source only runs when `/lead-sync/sources/:id/sync` is called.
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/lead-sync/google/connection` | `WRITE_CONTACTS` |
+| POST | `/lead-sync/google/spreadsheet` | `WRITE_CONTACTS` |
+| POST | `/lead-sync/google/preview` | `WRITE_CONTACTS` |
+| GET | `/lead-sync/sources`, `/lead-sync/sources/:id` | `WRITE_CONTACTS` |
+| POST | `/lead-sync/sources` | `WRITE_CONTACTS` |
+| PATCH | `/lead-sync/sources/:id` | `WRITE_CONTACTS` |
+| DELETE | `/lead-sync/sources/:id` | `WRITE_CONTACTS` |
+| POST | `/lead-sync/sources/:id/sync` | `WRITE_CONTACTS` |
+
+A source's `column_mapping` is validated when the source is written, not on its next sync, so a mapping with no `email` column or an unusable custom-field name is a `400` on create or update. See [integrations](/api/reference/integrations/).
+
+### Unibox
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/unibox` | `READ_UNIBOX` |
+| GET | `/unibox/count` | `READ_UNIBOX` |
+| GET | `/unibox/thread` | `READ_UNIBOX` |
+| GET | `/unibox/:id` | `READ_UNIBOX` |
+| PATCH | `/unibox/seen` | `WRITE_UNIBOX` |
+| POST | `/unibox/reply` | `WRITE_UNIBOX` |
+| POST | `/unibox/reply/draft` | `READ_UNIBOX` |
+| GET | `/unibox/compose/candidates` | `READ_UNIBOX` |
+| POST | `/unibox/compose` | `WRITE_UNIBOX` |
+| POST | `/unibox/compose/draft` | `READ_UNIBOX` |
+| GET | `/unibox/drafts` | `READ_UNIBOX` |
+| PUT | `/unibox/drafts/:id` | `WRITE_UNIBOX` |
+| DELETE | `/unibox/drafts/:id` | `WRITE_UNIBOX` |
+| GET | `/unibox/agent-drafts` | `READ_UNIBOX` |
+| POST | `/unibox/agent-drafts/:id/approve` | `WRITE_UNIBOX` |
+| POST | `/unibox/agent-drafts/:id/discard` | `WRITE_UNIBOX` |
+
+`POST /unibox/reply/draft` returns an AI-drafted reply (it never sends) grounded in the thread, the contact, and your [voice profile](/guides/unibox/#ai-reply-drafts). It charges AI credits; see [AI credits](/guides/ai-credits/).
+
+`POST /unibox/compose/draft` returns a grounded AI draft for a new email (it never sends): the recipient's contact record, correspondence history, and the workspace voice profile feed the prompt, and the response carries either `text` or a clarifying `question` plus a `grounding` report. Charges AI credits like the reply draft; see [AI credits](/guides/ai-credits/).
+
+`POST /unibox/compose` sends a brand-new outbound email (not a reply). Omit `email_account_id` (or pass `"auto"`) and the backend picks the best mailbox for the first recipient; the response reports `account_id`, `account_email`, `auto`, and a `picked_reason`. Recipients on the workspace suppression list are rejected with a `400` before anything queues. `GET /unibox/compose/candidates?to=<address>` returns every active mailbox scored for that recipient (conversation history, remaining daily budget, domain-auth health) plus the resolved contact and suppression state; see [composing email](/guides/unibox/#composing-a-new-email).
+
+The `/unibox/drafts` endpoints hold autosaved compose drafts, scoped to the calling user within the organization. The draft id is client-generated, so `PUT` is idempotent (safe for debounced autosave and retries); deleting a missing draft is a no-op.
+
+`GET /emails/:id/auth-check` runs a live SPF/DKIM/DMARC lookup on the mailbox's sending domain and reports it without changing anything. `POST /emails/:id/auth-check` runs the same lookup and records the verdict against every active mailbox on that domain, which is what clears the send gate after a DNS fix, so it needs `WRITE_EMAILS` rather than `READ_EMAILS`. The write takes no `Idempotency-Key`: it is derived entirely from public DNS with no request body, so repeating it converges on the same result. See [domain authentication](/guides/deliverability/#domain-authentication).
+
+`GET /emails/:id/track` reports the mailbox's stored tracking domain plus the `CNAME` value this deployment expects (`cname_target`, taken from its `TRACKING_DOMAIN`), and does no DNS work. `PATCH /emails/:id/track` sets the domain and resolves it once; `POST /emails/:id/track/verify` re-resolves the saved one and records the verdict, which is what makes a record that has finished propagating start being used. Both writes are derived from public DNS with no request body, so they take no `Idempotency-Key`. Only a verified domain is used at send time; until then opens and clicks go through the shared tracking host. See [custom tracking domain](/guides/mailboxes/#custom-tracking-domain).
+
+`POST /emails/:id/hold` keeps a mailbox out of campaign sending until `POST /emails/:id/release` puts it back; warmup is unaffected and the automatic rest logic never releases a hold. `release` is also the manual exit for a mailbox that is `resting` automatically. Both are bodyless and idempotent, so they take no `Idempotency-Key`. See [holding a mailbox yourself](/guides/mailboxes/#holding-a-mailbox-yourself).
+
+`PATCH /emails/:id` accepts `save_to_sent` (boolean) on SMTP/IMAP mailboxes: when true, which is the default, the worker files a copy of each outbound message in the mailbox's Sent folder. It has no effect on Gmail and Outlook mailboxes, whose APIs file their own copy. See [keeping a copy of sent mail](/guides/mailboxes/#keeping-a-copy-of-sent-mail).
+
+`GET /unibox` and `GET /unibox/thread` return message previews: each row carries `snippet`, a one-line summary, not the message body. Read a full message with `GET /unibox/:id`, which returns `body_plain` plus `body_html`. The HTML is sanitized before it leaves the API (scripts, event handlers, embedded frames, and unsafe URL schemes are removed), so it is safe to render, and links carry `target="_blank"` with `rel="noopener"`. `body_truncated` is `true` on the rare message whose stored body could not be read, where `body_plain` falls back to the snippet.
+
+`GET /unibox` also accepts `address=<value>` (matches sender or recipient, for "every conversation with this person") and `direction=sent|received` (resolved against your own mailbox addresses).
+
+The `agent-drafts` endpoints back the [inbox agent](/guides/inbox-agent/): the agent drafts a suggested reply on an inbound human reply and holds it here for review. `GET` lists the pending drafts; `approve` sends one (optionally with an edited `body`) through the normal reply path and is safe to retry with an `Idempotency-Key`; `discard` dismisses it. Approving is the only path that sends.
+
+### Templates and CRM
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/templates`, `/templates/:id` | `READ_TEMPLATES` |
+| POST/PATCH/DELETE | `/templates[/:id]` | `WRITE_TEMPLATES` |
+| GET | `/crm/pipelines`, `/crm/pipelines/:id` | `READ_CRM` |
+| POST/PATCH/DELETE | `/crm/pipelines[/:id][/stages[/:stageId]]` | `WRITE_CRM` |
+| GET | `/crm/deals`, `/crm/deals/:id` | `READ_CRM` |
+| POST/PATCH/DELETE | `/crm/deals[/:id]` | `WRITE_CRM` |
+| GET | `/crm/tasks`, `/crm/tasks/:id` | `READ_CRM` |
+| POST/PATCH/DELETE | `/crm/tasks[/:id]` | `WRITE_CRM` |
+
+### Analytics and audit
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/analytics/*` (dashboard, deliverability, warmup, campaigns, accounts, usage) | `READ_ANALYTICS` |
+| GET | `/deliverability/postmaster` | `READ_ANALYTICS` |
+| GET | `/audit-logs` | `READ_AUDIT_LOGS` |
+
+`GET /deliverability/postmaster` returns Gmail's own view of one sending domain, from Google Postmaster Tools. See [Gmail Postmaster Tools](/guides/deliverability/#gmail-postmaster-tools) for what the numbers mean and how to connect Google.
+
+| Query | Meaning |
+|-------|---------|
+| `domain` | One of the workspace's sending domains. Omitted, it picks the first domain that has data. A domain the workspace does not send from is `404` `postmaster_domain_not_found` |
+| `days` | Window in days, `1` to `120`, default `30`. Anything else is `400` `postmaster_invalid_days` |
+
+The answer is one object. Not connected, or no data yet, is a normal `200` with an empty `data` array, so a client can explain the setup instead of handling an error. The list is bounded by `days` and is not cursor paginated.
+
+```json
+{
+  "connected": true,
+  "can_connect": true,
+  "last_synced_at": "2026-10-24T04:00:12Z",
+  "last_error": "",
+  "domains": [{ "domain": "acme.com", "mailboxes": 4, "latest_date": "2026-10-22" }],
+  "domain": "acme.com",
+  "days": 30,
+  "thresholds": { "spam_warn": 0.001, "spam_critical": 0.003 },
+  "summary": {
+    "days_with_data": 21,
+    "latest_date": "2026-10-22",
+    "latest_reputation": "high",
+    "spam_rate_avg": 0.0004,
+    "spam_rate_max": 0.0011,
+    "days_over_warn": 1,
+    "days_over_critical": 0,
+    "spf_avg": 1,
+    "dkim_avg": 0.99,
+    "dmarc_avg": 0.99
+  },
+  "data": [
+    {
+      "date": "2026-10-22",
+      "domain_reputation": "high",
+      "spam_rate": 0.0003,
+      "spf_ratio": 1,
+      "dkim_ratio": 0.99,
+      "dmarc_ratio": 0.99
+    }
+  ]
+}
+```
+
+Every ratio is a fraction from `0` to `1` (`0.001` is `0.10%`) and is `null` when Gmail reported nothing for that day, which is normal for low-volume domains. `domain_reputation` is `high`, `medium`, `low`, `bad`, or `null`. `days_over_warn` and `days_over_critical` count days at or above each threshold, so a day at the critical line counts in both.
+
+### Advisor
+
+Recommendations about deliverability, mailbox configuration, warmup, campaign performance, copy, and list quality. See the [Advisor guide](/guides/advisor/).
+
+Reads are an analytics read of the workspace's sending posture. Applying or undoing a fix has no scope of its own: the change runs through the tool the fix actually uses and is refused if the caller lacks that tool's permission, so a key that can read recommendations cannot use them to make changes it could not make directly.
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/advisor/recommendations` | `READ_ANALYTICS` |
+| GET | `/advisor/summary` | `READ_ANALYTICS` |
+| GET | `/advisor/settings` | `READ_ANALYTICS` |
+| POST | `/advisor/refresh` | `READ_ANALYTICS` |
+| POST | `/advisor/recommendations/:id/snooze` | `READ_ANALYTICS` |
+| POST | `/advisor/recommendations/:id/dismiss` | `READ_ANALYTICS` |
+| POST | `/advisor/recommendations/:id/feedback` | `READ_ANALYTICS` |
+| POST | `/advisor/recommendations/:id/apply` | permission of the underlying change |
+| POST | `/advisor/recommendations/:id/undo` | permission of the underlying change |
+
+Changing Advisor settings (`PATCH /advisor/settings`) is JWT only, alongside the rest of organization settings. Silencing checks for a whole workspace is governance, and no read scope should be able to do it. The same applies to `POST /advisor/recommendations/:id/agent-fix`, which is JWT only and needs `USE_AI`: it acts as a named member and spends credits, and no API scope should let a key rewrite a workspace's campaigns unattended.
+
+### API key self-service
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/api-keys` | `API_KEYS` |
+| POST | `/api-keys` | `API_KEYS` |
+| GET | `/api-keys/permissions` | `API_KEYS` |
+| GET | `/api-keys/:id` | `API_KEYS` |
+| PATCH | `/api-keys/:id` | `API_KEYS` |
+| DELETE | `/api-keys/:id` | `API_KEYS` |
+
+### OAuth apps
+
+Registering and managing the OAuth apps your workspace owns. The flow itself (authorize, token, revoke) is listed under JWT only and Public below.
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/oauth/applications` | `API_KEYS` |
+| POST | `/oauth/applications` | `API_KEYS` |
+| GET | `/oauth/applications/:id` | `API_KEYS` |
+| PATCH | `/oauth/applications/:id` | `API_KEYS` |
+| DELETE | `/oauth/applications/:id` | `API_KEYS` |
+| POST | `/oauth/applications/:id/rotate-secret` | `API_KEYS` |
+| GET | `/oauth/applications/:id/webhook-secret` | `API_KEYS` |
+| POST | `/oauth/applications/:id/webhook-secret/rotate` | `API_KEYS` |
+| GET | `/oauth/applications/:id/webhook-endpoints` | `API_KEYS` |
+| GET | `/oauth/applications/:id/webhook-deliveries` | `API_KEYS` |
+
+### Operations
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET/PATCH | `/outreach/settings` | `WRITE_CAMPAIGNS` |
+| POST | `/deliverability/events` | `WRITE_CAMPAIGNS` |
+| GET | `/tasks/dlq` | `SEND_CAMPAIGNS` |
+| POST | `/tasks/dlq/:id/replay` | `SEND_CAMPAIGNS` |
+| GET/POST/PATCH/DELETE | `/webhooks[/:id]` | `WEBHOOKS` |
+| POST | `/webhooks/:id/rotate-secret` | `WEBHOOKS` |
+| POST | `/webhooks/:id/verify` | `WEBHOOKS` |
+| GET | `/webhooks/event-types` | `WEBHOOKS` |
+| GET | `/webhooks/deliveries` | `WEBHOOKS` |
+| GET | `/webhooks/:id/deliveries` | `WEBHOOKS` |
+| POST | `/webhooks/deliveries/:deliveryId/redeliver` | `WEBHOOKS` |
+| GET | `/webhooks/throttle-drops` | `WEBHOOKS` |
+| GET/POST/DELETE | `/integrations/*` | `INTEGRATIONS` |
+| GET/POST/PATCH/DELETE | `/automations[/:id]` | `INTEGRATIONS` |
+| PATCH | `/automations/:id/layout` | `INTEGRATIONS` |
+| GET/POST/PATCH/DELETE | `/warmup/routing[/:id]` | `WARMUP_ROUTING` |
+
+### Retry safety
+
+Mutating API requests may include an `Idempotency-Key` header. Dakiya Mail stores the completed response for 24 hours per organization and key. Reusing the same key with the same method, route, query, and body replays the original response with `X-Idempotent-Replayed: true`; reusing the key with a different request returns `409 Conflict`.
+
+### Identity
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/me` | (any authenticated key) |
+
+`GET /me` returns who the active credential belongs to: `user_id`, `email`, `name`, `organization_id`, `organization_name`, `auth_type` (`api_key`, `oauth`, or `jwt`), and the granted `scopes`. It requires no specific permission, so it is the right call for validating a connection and rendering a human-readable label. Unlike `/auth/me` (JWT only), it is reachable by API keys and OAuth tokens.
+
+### Reference data
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/plans` | (any authenticated key) |
+| GET | `/timezones` | (any authenticated key) |
+
+## JWT only
+
+These never accept an API key. They depend on a human-bound session: billing flows, governance, OAuth onboarding, websocket bootstrap, and operational destruction.
+
+- `POST /auth/login`, `/auth/login/confirm`, `/auth/register`, `/auth/register/confirm`, `/auth/refresh`, `/auth/reset-password`, `/auth/reset-password/confirm`
+- `GET /auth/config` (public deployment capabilities: which sign-in methods this backend has enabled, whether a login code step follows, whether signups are open, whether the instance still needs claiming)
+
+`POST /auth/register` accepts an optional `invite` field carrying an invitation token. On a deployment running `DISABLE_REGISTRATION=invite_only` it is what permits the signup, and the account is created inside the inviting organization rather than in a new one. The token must resolve to a live invitation whose email equals the submitted address, otherwise the request is refused with `invitation_invalid`. Omitting it on a closed deployment returns `registration_invite_only` or `registration_closed`. See [error codes](/api/error-codes/#registration-and-invitation-refusals).
+
+`GET /auth/config` gained two fields: `invites_required` (boolean, true when an invitation token is needed to create an account) and `docs_url` (string, the deployment's link to the accounts and access documentation, for a client to surface next to a refusal).
+
+`GET /auth/config` also carries `billing_enabled` (boolean). It is `false` when the deployment runs with `BILLING_PROVIDER=none`, which is the self-host default: every feature is unlocked server-side, so the dashboard shows the workspace as self-hosted instead of on a free trial and hides the billing and referral pages. `self_hosted` alone does not imply this, because a self-hosted install may still run Stripe.
+- `POST /auth/setup` (first-run claim: exchanges the one-time token printed at boot for the owner account. Refused once any account exists)
+- `GET /auth/providers`, `POST /auth/apple`, `POST /auth/google` (native-app social sign-in)
+- `POST /auth/oidc/begin`, `GET /auth/oidc/callback` (generic OpenID Connect sign-in)
+- `POST /auth/google/begin`, `GET /auth/google/callback`, `POST /auth/apple/begin`, `POST /auth/apple/callback` (browser Sign in with Google and Sign in with Apple)
+- `POST /auth/sso/exchange` (swaps the single-use handoff code from any of those callbacks for the session; `POST /auth/oidc/exchange` is the older name for the same endpoint)
+- `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/me`, `PATCH /auth/me/onboarding`
+- `POST /auth/me/avatar`, `DELETE /auth/me/avatar`
+- `POST /emails/onboarding/oauth/start`, `POST /emails/onboarding/oauth/finish`, `POST /emails/onboarding/smtp-imap`
+- `GET /oauth/authorize/details`, `POST /oauth/authorize` (the consent flow: a human approves a third-party app)
+- `GET /oauth/authorized-apps`, `DELETE /oauth/authorized-apps/:id` (apps the user has authorized)
+- `POST /getaway` (websocket bootstrap)
+- `GET /realtime/info`
+- `GET /me/danger-zone`, `POST /me/danger-zone/delete`, `DELETE /me/danger-zone/delete`
+- `GET /invitations`, `POST /invitations/accept`
+- All of `/organization/*` (create, switch, members, invitations, transfer ownership, avatar, danger zone)
+- `GET /website-tracking/settings`, `PATCH /website-tracking/settings`, `POST /website-tracking/settings/rotate-key` (the [website tracking](/guides/website-tracking/) snippet's consent mode, location precision, allowed hosts and retention; JWT permission `MANAGE_SETTINGS`. The rotate is bodyless and safe to repeat, each call issues a new key)
+- All of `/subscription/*` (checkout, portal, cancel, change-plan, preview-change, enterprise-inquiry, discounts, referrals, etc.)
+- All of `/pool-link/*` and `/cloud-link/*` (the self-hosted warmup pool link: approving an instance's code, listing and unlinking instances, and on a self-hosted instance the connect flow and mailbox enrollment). `POST /pool-link/codes` and `POST /pool-link/poll` are public and per-IP rate limited: they are the device-code handshake an instance uses before it has a token, and `/pool-link/instance/*` accepts only an instance token. `/pool-link/instance/oauth/*`, `/pool-link/instance/mailboxes/:id/token`, `/pool-link/instance/workspace-mailboxes` and `/pool-link/instance/mailboxes/adopt` are the cloud-managed mailbox surface (Google and Microsoft sign-in on Dakiya Mail's OAuth apps, brokered access tokens); their instance-side counterparts are `/cloud-link/oauth/*` and `/cloud-link/workspace-mailboxes/*`
+- `PUT /deliverability/postmaster/credentials`, `DELETE /deliverability/postmaster/credentials` (connect or remove the Google credentials behind [Gmail Postmaster Tools](/guides/deliverability/#gmail-postmaster-tools); JWT permission `MANAGE_SETTINGS`. The credentials belong to the whole instance, so this is refused with `postmaster_instance_scoped` unless the deployment is self-hosted. `PUT` replaces whatever is stored and `DELETE` of nothing succeeds, so both are safe to retry without an `Idempotency-Key`. Both answer `204`; the body of `PUT` is `client_id`, `client_secret` and `refresh_token`, and they are never returned by any endpoint)
+- All of `/admin/*`
+
+### Referrals and discounts
+
+The referral program and billing discount history are part of `/subscription/*`, so they are JWT only and never accept an API key. There is no API permission scope for them; browser callers are gated by the org permission below. The discount validation and checkout endpoints are listed under [Subscription and billing](/api/reference/account-org/) in the reference.
+
+| Method | Path | JWT permission |
+|--------|------|----------------|
+| GET | `/subscription/referral` | `manage_billing` |
+| POST | `/subscription/referral` | `manage_billing` |
+| GET | `/subscription/referral/attributions` | `manage_billing` |
+| GET | `/subscription/referral/earnings` | `manage_billing` |
+| GET | `/subscription/discounts` | `manage_billing` |
+
+### AI credits
+
+Credit balance, top-up purchases, and the transaction log are part of `/subscription/*`, so they are JWT only and never accept an API key. Purchases are fulfilled only in the Stripe webhook, never in the checkout call. See the [AI credits](/guides/ai-credits/) guide for what each action costs and the pack and reset rules. `GET /subscription/credits` carries `unlimited` (boolean): `true` on a deployment with `BILLING_PROVIDER=none`, where the ledger is bypassed and every balance and allowance field is zero and meaningless.
+
+| Method | Path | JWT permission |
+|--------|------|----------------|
+| GET | `/subscription/credits` | `manage_billing` |
+| GET | `/subscription/credits/transactions` | `manage_billing` |
+| POST | `/subscription/credits/checkout` | `manage_billing` |
+
+### AI assistant
+
+The dashboard AI assistant is JWT only: sessions are private to the member who started them. The message and approval runs stream over Server-Sent Events. Each tool the assistant runs is gated by the member's own organization permission bits, so the assistant can never do more than the member could by hand. See the [AI assistant](/guides/ai-assistant/) guide. (API-key and OAuth callers reach the same tools through the [MCP server](/api/mcp/), gated by the `AI_AGENT` scope.)
+
+| Method | Path | JWT permission |
+|--------|------|----------------|
+| POST | `/ai/sessions` | organization member (use AI) |
+| GET | `/ai/sessions` | organization member (use AI) |
+| DELETE | `/ai/sessions` | organization member (use AI) |
+| DELETE | `/ai/sessions/:id` | organization member (use AI) |
+| GET | `/ai/sessions/:id/messages` | organization member (use AI) |
+| POST | `/ai/sessions/:id/messages` | organization member (use AI, SSE) |
+| POST | `/ai/sessions/:id/approve` | organization member (use AI, SSE) |
+
+### AI skills
+
+Org playbooks the AI features follow (see the [AI skills](/guides/ai-skills/) guide). Gated on `manage_settings` for JWT callers, or the `AI_AGENT` scope for API keys.
+
+| Method | Path | Permission |
+|--------|------|------------|
+| GET | `/ai/skills` | `manage_settings` / `AI_AGENT` |
+| POST | `/ai/skills` | `manage_settings` / `AI_AGENT` |
+| PATCH | `/ai/skills/:id` | `manage_settings` / `AI_AGENT` |
+| DELETE | `/ai/skills/:id` | `manage_settings` / `AI_AGENT` |
+
+### Connected MCP servers
+
+External MCP servers whose tools the assistant can use (see [Connect MCP tools](/guides/connect-mcp-tools/)). JWT-only and `manage_settings`-gated; bearer tokens are sealed with the org key and never returned.
+
+| Method | Path | JWT permission |
+|--------|------|----------------|
+| GET | `/ai/connections` | `manage_settings` |
+| POST | `/ai/connections` | `manage_settings` |
+| PATCH | `/ai/connections/:id` | `manage_settings` |
+| DELETE | `/ai/connections/:id` | `manage_settings` |
+| POST | `/ai/connections/:id/refresh` | `manage_settings` |
+
+## MCP server
+
+`POST /v1/mcp` exposes the tool registry over the [Model Context Protocol](/api/mcp/) streamable-HTTP transport. It accepts an API key or an OAuth 2.1 access token (an unauthenticated request gets the RFC 9728 discovery challenge). Each tool is gated by its scope, `tools/list` reflects only what the credential allows, and send-class tools are never exposed. Per-key rate limits apply.
+
+## Public
+
+- `GET /health`
+- `POST /webhooks/github/releases` (HMAC-SHA256 signature)
+- `POST /webhook/stripe` (Stripe signature)
+- `POST /webhook/campaign`, `/webhook/email`, `/webhook/user-email` (Google OIDC token from Cloud Tasks)
+- `GET /addresses/google/callback`, `GET /addresses/outlook/callback` (OAuth bouncer pages)
+- `POST /oauth/token`, `POST /oauth/revoke` (OAuth token endpoints, authenticated by the client's id and secret, or PKCE for public clients)
+- `POST /oauth/register` (OAuth dynamic client registration, RFC 7591; open and per-IP rate-limited)
+- `GET /.well-known/oauth-authorization-server`, `GET /.well-known/oauth-protected-resource` (OAuth discovery metadata)
+
+On the tracking service (the `TRACKING_DOMAIN` host, not the API), also public and rate-limited per source:
+
+- `GET /t/o/:task_id.png` (open pixel), `GET /c/:link_id` (click redirect)
+- `GET /tracking.js` (the website tracking snippet), `POST /p` (page-view ingest; JSON body up to 8 KB, `429` over budget, `204` otherwise. Nothing in the request can name a contact)
+
+## Notes
+
+- When a route has both a JWT permission and an API permission listed, the dual-auth middleware checks the JWT user's organization role for browser callers and the key's permission bitmask for API key callers. They're independent gates: a user's role doesn't constrain what an API key can do beyond what was granted at creation.
+- Every API key request is logged to `api_key_usage_logs` with the endpoint pattern (e.g. `/campaigns/:id`), method, IP, user-agent, response status, and elapsed milliseconds. JWT requests are not logged here.
+- Rate limit categories (`X-RateLimit-*` headers) are scoped to the underlying user, not the key; every key issued by a user shares the user's quota.
+
+## See also
+
+- [Authentication](/api/authentication/)
+- [Permissions Reference](/api/permissions/)
+- [Error Codes](/api/error-codes/)

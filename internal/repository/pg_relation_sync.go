@@ -1,0 +1,152 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/db"
+	"github.com/bitan-del/dakiya-mail/internal/utils"
+	"github.com/jackc/pgx/v5"
+)
+
+type RelationSyncInput struct {
+	Tx         pgx.Tx
+	Ctx        context.Context
+	Table      string // e.g. "email_tags"
+	ColMain    string // e.g. "email"
+	ColRelated string // e.g. "tag"
+	MainID     any
+	NewValues  []string
+}
+
+// SyncRelation diffs the desired related-id set against what's stored and
+// applies the minimal insert/delete. All relation join tables here key on
+// uuid↔uuid (campaign_id/email_id ↔ tag_id/folder_id), and Postgres has NO
+// implicit text→uuid assignment cast, so the id params (sent by pgx as text)
+// are cast to uuid explicitly. The SELECT casts the related id back to ::text
+// so it scans cleanly into a Go string.
+func SyncRelation(input RelationSyncInput) ([]string, *errx.Error) {
+	querySelect := fmt.Sprintf(`SELECT %s::text FROM %s WHERE %s = $1::uuid`,
+		input.ColRelated, input.Table, input.ColMain)
+
+	params := []any{
+		input.MainID,
+	}
+
+	rows, err := input.Tx.Query(
+		input.Ctx,
+		querySelect,
+		params...,
+	)
+	if err != nil {
+		db.CaptureError(err, querySelect, params, "query")
+		return nil, errx.InternalError()
+	}
+	defer rows.Close()
+
+	var current []string
+	for rows.Next() {
+		var val string
+		if err := rows.Scan(&val); err != nil {
+			db.CaptureError(err, "", nil, "scan")
+			return nil, errx.InternalError()
+		}
+		current = append(current, val)
+	}
+
+	toInsert := utils.Difference(input.NewValues, current)
+	toDelete := utils.Difference(current, input.NewValues)
+
+	if len(toDelete) > 0 {
+		queryDel := fmt.Sprintf(`DELETE FROM %s WHERE %s = $1::uuid AND %s = ANY($2::uuid[])`,
+			input.Table, input.ColMain, input.ColRelated)
+
+		params = []any{
+			input.MainID,
+			toDelete,
+		}
+
+		if _, err := input.Tx.Exec(
+			input.Ctx,
+			queryDel,
+			params...,
+		); err != nil {
+			db.CaptureError(err, queryDel, params, "exec")
+			return nil, errx.InternalError()
+		}
+	}
+
+	if len(toInsert) > 0 {
+		queryIns := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+                                 SELECT $1::uuid, unnest($2::uuid[])`,
+			input.Table, input.ColMain, input.ColRelated)
+
+		params = []any{
+			input.MainID,
+			toInsert,
+		}
+
+		if _, err := input.Tx.Exec(input.Ctx, queryIns, input.MainID, toInsert); err != nil {
+			db.CaptureError(err, queryIns, params, "exec")
+			return nil, errx.InternalError()
+		}
+	}
+
+	// Construct final result
+	final := utils.Filter(current, func(v string) bool {
+		return !utils.Contains(toDelete, v)
+	})
+
+	final = append(final, toInsert...)
+
+	return final, nil
+}
+
+func SyncEmailTags(ctx context.Context, tx pgx.Tx, emailAccountID string, newTags []string) ([]string, *errx.Error) {
+	tags, err := SyncRelation(RelationSyncInput{
+		Tx:         tx,
+		Ctx:        ctx,
+		Table:      "email_tags",
+		ColMain:    "email_id",
+		ColRelated: "tag_id",
+		MainID:     emailAccountID,
+		NewValues:  newTags,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+func SyncCampaignEmailTags(ctx context.Context, tx pgx.Tx, campaignID string, newTags []string) ([]string, *errx.Error) {
+	tags, err := SyncRelation(RelationSyncInput{
+		Tx:         tx,
+		Ctx:        ctx,
+		Table:      "campaign_email_tags",
+		ColMain:    "campaign_id",
+		ColRelated: "tag_id",
+		MainID:     campaignID,
+		NewValues:  newTags,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+func SyncCampaignFolders(ctx context.Context, tx pgx.Tx, campaignID string, newFolders []string) ([]string, *errx.Error) {
+	folders, err := SyncRelation(RelationSyncInput{
+		Tx:         tx,
+		Ctx:        ctx,
+		Table:      "campaign_folders",
+		ColMain:    "campaign_id",
+		ColRelated: "folder_id",
+		MainID:     campaignID,
+		NewValues:  newFolders,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return folders, nil
+}

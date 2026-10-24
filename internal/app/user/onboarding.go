@@ -1,0 +1,43 @@
+package user
+
+import (
+	"context"
+
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/google/uuid"
+)
+
+func (s *userService) CompleteOnboarding(ctx context.Context, userID uuid.UUID, firstName, lastName, referralSource, role, teamSize string) *errx.Error {
+	if err := s.userRepository.UpdateOnboarding(ctx, userID, firstName, lastName, referralSource, role, teamSize); err != nil {
+		return errx.InternalError()
+	}
+
+	s.cache.Del(ctx, getUserKey(userID))
+
+	return nil
+}
+
+// UpdateProfile persists the user's display name (first/last) from the profile
+// settings page. Distinct from CompleteOnboarding, which also captures the
+// one-time questionnaire answers; this is the editable, repeatable name update.
+func (s *userService) UpdateProfile(ctx context.Context, userID uuid.UUID, firstName, lastName string) *errx.Error {
+	if err := s.userRepository.UpdateProfile(ctx, userID, firstName, lastName); err != nil {
+		return errx.InternalError()
+	}
+
+	s.cache.Del(ctx, getUserKey(userID))
+
+	return nil
+}
+
+// UpdateUndoSendSeconds persists the user's undo-send window. Bounds are
+// validated at the handler; the DB CHECK backstops.
+func (s *userService) UpdateUndoSendSeconds(ctx context.Context, userID uuid.UUID, seconds int) *errx.Error {
+	if err := s.userRepository.SetUndoSendSeconds(ctx, userID, seconds); err != nil {
+		return errx.InternalError()
+	}
+
+	s.cache.Del(ctx, getUserKey(userID))
+
+	return nil
+}

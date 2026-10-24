@@ -1,0 +1,275 @@
+package tasks
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/bitan-del/dakiya-mail/internal/app/advanced"
+	"github.com/bitan-del/dakiya-mail/internal/app/cipher"
+	"github.com/bitan-del/dakiya-mail/internal/app/credits"
+	"github.com/bitan-del/dakiya-mail/internal/app/feature"
+	warmupapp "github.com/bitan-del/dakiya-mail/internal/app/warmup"
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/events"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/pubsub"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/generation"
+	"github.com/bitan-del/dakiya-mail/internal/repository"
+	"github.com/bitan-del/dakiya-mail/internal/scheduler"
+	"github.com/bitan-del/dakiya-mail/internal/tasks/proto"
+	"github.com/bitan-del/dakiya-mail/internal/tasksched"
+	"github.com/google/uuid"
+)
+
+// Type aliases for repository types
+type (
+	Task                = repository.Task
+	CampaignTask        = repository.CampaignTask
+	WarmupTask          = repository.WarmupTask
+	ContactSequencePair = repository.ContactSequencePair
+)
+
+// Type aliases for model types
+type (
+	Email    = models.Email
+	Contact  = models.Contact
+	Campaign = models.Campaign
+	Sequence = models.Sequence
+)
+
+type TasksService interface {
+	// HandleTask routes a due task by its row's task_type. It is the single
+	// entrypoint for both schedulers: the local poller calls it in-process, and
+	// the Cloud Tasks webhook forwards to it. All enqueues share one dispatch,
+	// so the type is read from the row, not inferred from any route.
+	HandleTask(task *proto.ProcessTask) *errx.Error
+	HandleCampaignTask(task *proto.ProcessTask) *errx.Error
+	HandleEmailTask(task *proto.ProcessTask) *errx.Error
+	HandleUserEmailTask(task *proto.ProcessTask) *errx.Error
+
+	// Test email support
+	SendTestEmail(ctx context.Context, userID string, accountID uuid.UUID, recipient string, campaign *models.Campaign, sequence *models.Sequence) *errx.Error
+	GetCampaignSequences(ctx context.Context, campaignID uuid.UUID) ([]models.Sequence, error)
+
+	// Warmup scheduling lifecycle
+	EnsureWarmupScheduled(ctx context.Context, accountID uuid.UUID) error
+	StartWarmupReconciler(ctx context.Context, interval time.Duration)
+
+	// StartCampaignReconciler re-seeds active campaigns whose self-perpetuating
+	// task chain died (swallowed enqueue / crash between ticks). Campaigns have
+	// no other bootstrap once started, so this is the stall backstop.
+	StartCampaignReconciler(ctx context.Context, interval time.Duration)
+
+	// SetAI wires the LLM provider + credit ledger the campaign "switch" sequence
+	// steps run over (mirrors integration.Service.SetAI). Nil provider leaves
+	// AI steps returning a clean "not available".
+	SetAI(p generation.Provider, c credits.CreditService)
+
+	// SetAISearch wires the optional web-search backend the switch step's
+	// web-search capability uses (nil = capability silently unavailable).
+	SetAISearch(sc generation.SearchClient)
+
+	// SetAITools wires the web-tool source so research-mode AI variables can run
+	// a bounded web-research agent at send time (nil = research degrades to a
+	// single completion with one optional web search).
+	SetAITools(src AIToolSource)
+
+	// SetDomainAuthPolicy wires the sending-domain authentication gate, which
+	// stops warmup sends from a domain that has been failing SPF/DMARC past
+	// the operator's grace window. Nil leaves the state observe-only.
+	SetDomainAuthPolicy(p DomainAuthPolicy)
+	// SetCloudLink wires the self-hosted side of the warmup pool link: a
+	// mailbox the cloud warms gets no local warmup chain.
+	SetCloudLink(r CloudLinkReader)
+}
+
+// CloudLinkReader reports whether Dakiya Mail Cloud warms a mailbox.
+type CloudLinkReader interface {
+	IsEnrolled(ctx context.Context, accountID uuid.UUID) bool
+}
+
+// AIToolSource yields the read-only web tools (search_web, fetch_url) a
+// research-mode AI variable agent runs over, bound to an org. Defined here (not
+// imported from aitools) so the tasks package stays free of the aitools import
+// cycle; *aitools.Registry satisfies it structurally via its WebResearchTools
+// method.
+type AIToolSource interface {
+	WebResearchTools(orgID uuid.UUID) []generation.ToolDef
+}
+
+// AutomationRunner launches an automation graph by id. It's satisfied
+// structurally by integration.Service, so tasks needs no import of the
+// integration package (mirrors the advanced.EventDispatcher wiring pattern).
+type AutomationRunner interface {
+	RunAutomationByID(ctx context.Context, orgID, automationID uuid.UUID, data map[string]any) error
+}
+
+type tasksService struct {
+	// Infrastructure
+	tasksClient        tasksched.Scheduler
+	generationClient   *generation.GenerationClient
+	streamingPublisher *pubsub.StreamingPublisher
+	eventsPublisher    events.Publisher
+
+	// Services
+	scheduler     scheduler.SchedulerService
+	cipherService cipher.CipherService
+	emailSender   EmailSender
+	featureGate   feature.FeatureGateService
+	advanced      advanced.Service
+	warmupHealth  warmupapp.Service
+
+	// Repositories
+	taskRepo             repository.TaskRepository
+	warmupRepo           repository.WarmupRepository
+	warmupRoutingRepo    repository.WarmupRoutingRepository
+	warmupContentRepo    repository.WarmupContentRepository
+	campaignProgressRepo repository.CampaignProgressRepository
+	emailRepo            repository.EmailRepository
+	campaignRepo         repository.CampaignRepository
+	contactRepo          repository.ContactRepository
+	campaignLogRepo      repository.CampaignLogRepository
+	// orgRiskRepo bars a restricted organization from the paid warmup pool.
+	// Optional/nil-safe.
+	orgRiskRepo     repository.OrgRiskRepository
+	attachmentRepo  repository.AttachmentRepository
+	trackedLinkRepo repository.TrackedLinkRepository
+
+	// automationRunner launches automations from a campaign "run_automation" step.
+	automationRunner AutomationRunner
+
+	// aiProvider + aiCredits back the campaign "switch" sequence step (SetAI).
+	aiProvider generation.Provider
+	aiCredits  credits.CreditService
+	aiSearch   generation.SearchClient
+	// aiTools sources the web tools research-mode AI variables run a bounded
+	// agent over (SetAITools). Nil = research degrades.
+	aiTools AIToolSource
+
+	// warmupSettings caches the warmup generation settings in-process so the
+	// per-send AI-vs-static decision doesn't hit Postgres on every warmup.
+	warmupSettings *warmupSettingsCache
+
+	// domainAuth resolves the operator's sending-domain authentication gate.
+	// Optional/nil-safe: without it the persisted auth state stays
+	// observe-only and no warmup send is ever blocked.
+	domainAuth DomainAuthPolicy
+	// cloudLink is nil on instances that are not linked to Dakiya Mail Cloud.
+	cloudLink CloudLinkReader
+	// warmupThreads backs the live warmup writer (WireWarmupThreads). Nil leaves
+	// the writer off.
+	warmupThreads repository.WarmupThreadRepository
+}
+
+// DomainAuthPolicy resolves whether the sending-domain authentication gate is
+// enforced, and how long a domain must stay failing before it applies. Narrow
+// and primitive-typed so this package does not depend on the settings package;
+// instancesettings.Service satisfies it.
+type DomainAuthPolicy interface {
+	DomainAuth(ctx context.Context) (enforce bool, grace time.Duration)
+}
+
+// warmupSettingsCache is a tiny TTL cache over the generation settings.
+type warmupSettingsCache struct {
+	mu      sync.RWMutex
+	val     models.WarmupGenerationSettings
+	fetched time.Time
+}
+
+func NewService(
+	tasksClient tasksched.Scheduler,
+	generationClient *generation.GenerationClient,
+	streamingPublisher *pubsub.StreamingPublisher,
+	eventsPublisher events.Publisher,
+	scheduler scheduler.SchedulerService,
+	cipherService cipher.CipherService,
+	emailSender EmailSender,
+	featureGate feature.FeatureGateService,
+	warmupHealth warmupapp.Service,
+	taskRepo repository.TaskRepository,
+	warmupRepo repository.WarmupRepository,
+	warmupRoutingRepo repository.WarmupRoutingRepository,
+	warmupContentRepo repository.WarmupContentRepository,
+	campaignProgressRepo repository.CampaignProgressRepository,
+	emailRepo repository.EmailRepository,
+	campaignRepo repository.CampaignRepository,
+	contactRepo repository.ContactRepository,
+	campaignLogRepo repository.CampaignLogRepository,
+	advanced advanced.Service,
+	attachmentRepo repository.AttachmentRepository,
+	trackedLinkRepo repository.TrackedLinkRepository,
+	automationRunner AutomationRunner,
+) TasksService {
+	return &tasksService{
+		tasksClient:          tasksClient,
+		generationClient:     generationClient,
+		streamingPublisher:   streamingPublisher,
+		eventsPublisher:      eventsPublisher,
+		scheduler:            scheduler,
+		cipherService:        cipherService,
+		emailSender:          emailSender,
+		featureGate:          featureGate,
+		advanced:             advanced,
+		warmupHealth:         warmupHealth,
+		taskRepo:             taskRepo,
+		warmupRepo:           warmupRepo,
+		warmupRoutingRepo:    warmupRoutingRepo,
+		warmupContentRepo:    warmupContentRepo,
+		campaignProgressRepo: campaignProgressRepo,
+		emailRepo:            emailRepo,
+		campaignRepo:         campaignRepo,
+		contactRepo:          contactRepo,
+		campaignLogRepo:      campaignLogRepo,
+		attachmentRepo:       attachmentRepo,
+		trackedLinkRepo:      trackedLinkRepo,
+		automationRunner:     automationRunner,
+		warmupSettings:       &warmupSettingsCache{},
+	}
+}
+
+// SetAI wires the LLM provider + credit ledger for campaign "switch" steps.
+func (s *tasksService) SetAI(p generation.Provider, c credits.CreditService) {
+	s.aiProvider = p
+	s.aiCredits = c
+}
+
+func (s *tasksService) SetAISearch(sc generation.SearchClient) {
+	s.aiSearch = sc
+}
+
+func (s *tasksService) SetAITools(src AIToolSource) {
+	s.aiTools = src
+}
+
+// SetDomainAuthPolicy wires the sending-domain authentication gate.
+func (s *tasksService) SetDomainAuthPolicy(p DomainAuthPolicy) {
+	s.domainAuth = p
+}
+
+// SetCloudLink wires the cloud-warmed mailbox check.
+func (s *tasksService) SetCloudLink(r CloudLinkReader) {
+	s.cloudLink = r
+}
+
+// domainAuthBlocked reports whether this mailbox may not send because its
+// sending domain has been failing authentication past the grace window.
+// Nil policy or enforcement off means never blocked.
+func (s *tasksService) domainAuthBlocked(ctx context.Context, account *models.Email) bool {
+	if s.domainAuth == nil || account == nil {
+		return false
+	}
+	enforce, grace := s.domainAuth.DomainAuth(ctx)
+	return enforce && account.DomainAuthBlocked(time.Now(), grace)
+}
+
+// WireOrgRisk attaches the organization risk posture. Kept off the constructor
+// so the service stays constructible in tests and in deployments without it.
+func (s *tasksService) WireOrgRisk(r repository.OrgRiskRepository) {
+	s.orgRiskRepo = r
+}
+
+// OrgRiskAware is the optional capability the caller uses to attach org risk.
+type OrgRiskAware interface {
+	WireOrgRisk(r repository.OrgRiskRepository)
+}

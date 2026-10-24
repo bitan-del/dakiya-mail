@@ -1,0 +1,20 @@
+import type { AddContact } from "@/components/app/AddContacts";
+import addContacts from "@/lib/api/client/app/contacts/addContacts";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+export default function useAddContacts() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (contacts: AddContact[]) => addContacts(contacts),
+        onSuccess: () => {
+            // The campaign Leads tab is a ["contacts","list"] search scoped to one
+            // campaign, so a lead created there needs the list refetched, and
+            // ["campaigns"] carries the counts that just moved.
+            return Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["contacts", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
+            ])
+        }
+    })
+}

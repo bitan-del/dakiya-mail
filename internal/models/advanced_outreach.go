@@ -1,0 +1,496 @@
+package models
+
+import (
+	"math"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type BouncePipelineSettings struct {
+	Enabled                     bool    `json:"enabled"`
+	AutoSuppressOnBounce        bool    `json:"auto_suppress_on_bounce"`
+	AutoSuppressOnComplaint     bool    `json:"auto_suppress_on_complaint"`
+	AutoSuppressOnUnsubscribe   bool    `json:"auto_suppress_on_unsubscribe"`
+	AutoPauseCampaignOnSpike    bool    `json:"auto_pause_campaign_on_spike"`
+	PauseBounceRateThreshold    float64 `json:"pause_bounce_rate_threshold"`
+	PauseComplaintRateThreshold float64 `json:"pause_complaint_rate_threshold"`
+}
+
+type TaskReliabilitySettings struct {
+	Enabled                bool `json:"enabled"`
+	DLQEnabled             bool `json:"dlq_enabled"`
+	MaxAttempts            int  `json:"max_attempts"`
+	ExecutionWindowSeconds int  `json:"execution_window_seconds"`
+}
+
+type ABTestingSettings struct {
+	Enabled            bool   `json:"enabled"`
+	DefaultWinningRule string `json:"default_winning_rule"`
+	AutoPromoteWinner  bool   `json:"auto_promote_winner"`
+	MinSampleSize      int    `json:"min_sample_size"`
+}
+
+type ReplyIntentSettings struct {
+	Enabled                 bool     `json:"enabled"`
+	PositiveKeywords        []string `json:"positive_keywords"`
+	NegativeKeywords        []string `json:"negative_keywords"`
+	OutOfOfficeKeywords     []string `json:"out_of_office_keywords"`
+	QuestionKeywords        []string `json:"question_keywords"`
+	AutoCreateCRMTask       bool     `json:"auto_create_crm_task"`
+	AutoPauseOnNegative     bool     `json:"auto_pause_on_negative"`
+	AutoSuppressOnUnsubWord bool     `json:"auto_suppress_on_unsubscribe_keyword"`
+}
+
+type SendTimeOptimizationSettings struct {
+	Enabled                 bool    `json:"enabled"`
+	UseContactTimezone      bool    `json:"use_contact_timezone"`
+	DefaultContactTimezone  string  `json:"default_contact_timezone"`
+	PreferredHours          []int   `json:"preferred_hours"`
+	WeekendWeightMultiplier float64 `json:"weekend_weight_multiplier"`
+}
+
+type PreflightValidationSettings struct {
+	Enabled                  bool `json:"enabled"`
+	CheckTrackingDomain      bool `json:"check_tracking_domain"`
+	CheckUnsubscribeHeader   bool `json:"check_unsubscribe_header"`
+	CheckABVariantConfigured bool `json:"check_ab_variant_configured"`
+	CheckDailyLimit          bool `json:"check_daily_limit"`
+	CheckScheduleWindow      bool `json:"check_schedule_window"`
+	// CheckContentScore scores each step's copy for spam signals, at preflight
+	// and again per send against the rendered text. Advisory: it warns, it
+	// never blocks a send.
+	CheckContentScore bool `json:"check_content_score"`
+	// MinContentScore is the 1-100 floor below which copy is flagged.
+	MinContentScore int `json:"min_content_score"`
+}
+
+// Normalize clamps the settings an API caller can put out of range, so a stored
+// value can never make every campaign fail the check or none of them.
+func (s *AdvancedOutreachSettings) Normalize() {
+	if s == nil {
+		return
+	}
+	if s.Preflight.MinContentScore > 100 {
+		s.Preflight.MinContentScore = 100
+	}
+	if s.Preflight.MinContentScore < 1 {
+		s.Preflight.MinContentScore = 1
+	}
+}
+
+type DeliverabilityDashboardSettings struct {
+	Enabled            bool `json:"enabled"`
+	ShowSuppressionLog bool `json:"show_suppression_log"`
+	ShowIntentSummary  bool `json:"show_intent_summary"`
+	ShowDLQStats       bool `json:"show_dlq_stats"`
+}
+
+type AdvancedOutreachSettings struct {
+	BouncePipeline       BouncePipelineSettings          `json:"bounce_pipeline"`
+	TaskReliability      TaskReliabilitySettings         `json:"task_reliability"`
+	ABTesting            ABTestingSettings               `json:"ab_testing"`
+	ReplyIntent          ReplyIntentSettings             `json:"reply_intent"`
+	SendTimeOptimization SendTimeOptimizationSettings    `json:"send_time_optimization"`
+	Preflight            PreflightValidationSettings     `json:"preflight"`
+	Dashboard            DeliverabilityDashboardSettings `json:"dashboard"`
+	Custom               map[string]interface{}          `json:"custom,omitempty"`
+}
+
+type CampaignAdvancedSettings struct {
+	CampaignID uuid.UUID                `json:"campaign_id"`
+	Overrides  AdvancedOutreachSettings `json:"overrides"`
+	UpdatedAt  time.Time                `json:"updated_at"`
+}
+
+type UpsertOutreachSettingsRequest struct {
+	Settings AdvancedOutreachSettings `json:"settings"`
+}
+
+type DeliverabilityEventType string
+
+const (
+	DeliverabilityEventBounce      DeliverabilityEventType = "bounce"
+	DeliverabilityEventComplaint   DeliverabilityEventType = "complaint"
+	DeliverabilityEventUnsubscribe DeliverabilityEventType = "unsubscribe"
+	DeliverabilityEventOpen        DeliverabilityEventType = "open"
+	DeliverabilityEventClick       DeliverabilityEventType = "click"
+	DeliverabilityEventReply       DeliverabilityEventType = "reply"
+)
+
+type DeliverabilityEvent struct {
+	ID             uuid.UUID               `json:"id"`
+	OrganizationID uuid.UUID               `json:"organization_id"`
+	CampaignID     *uuid.UUID              `json:"campaign_id,omitempty"`
+	TaskID         *uuid.UUID              `json:"task_id,omitempty"`
+	ContactID      *uuid.UUID              `json:"contact_id,omitempty"`
+	EventType      DeliverabilityEventType `json:"event_type"`
+	Provider       string                  `json:"provider"`
+	RecipientEmail string                  `json:"recipient_email"`
+	Reason         string                  `json:"reason"`
+	IdempotencyKey string                  `json:"idempotency_key"`
+	Metadata       map[string]interface{}  `json:"metadata"`
+	CreatedAt      time.Time               `json:"created_at"`
+}
+
+type IngestDeliverabilityEventRequest struct {
+	CampaignID     *uuid.UUID              `json:"campaign_id,omitempty"`
+	TaskID         *uuid.UUID              `json:"task_id,omitempty"`
+	ContactID      *uuid.UUID              `json:"contact_id,omitempty"`
+	EventType      DeliverabilityEventType `json:"event_type" binding:"required"`
+	Provider       string                  `json:"provider,omitempty"`
+	RecipientEmail string                  `json:"recipient_email" binding:"required"`
+	Reason         string                  `json:"reason,omitempty"`
+	IdempotencyKey string                  `json:"idempotency_key,omitempty"`
+	Metadata       map[string]interface{}  `json:"metadata,omitempty"`
+}
+
+type SuppressedRecipient struct {
+	ID             uuid.UUID               `json:"id"`
+	OrganizationID uuid.UUID               `json:"organization_id"`
+	Email          string                  `json:"email"`
+	Reason         string                  `json:"reason"`
+	Source         DeliverabilityEventType `json:"source"`
+	CampaignID     *uuid.UUID              `json:"campaign_id,omitempty"`
+	ExpiresAt      *time.Time              `json:"expires_at,omitempty"`
+	Metadata       map[string]interface{}  `json:"metadata,omitempty"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+}
+
+type CampaignABVariant struct {
+	ID         uuid.UUID `json:"id"`
+	CampaignID uuid.UUID `json:"campaign_id"`
+	// SequenceID scopes the variant to one step. nil = campaign-level (applies
+	// to every step, legacy behavior).
+	SequenceID *uuid.UUID             `json:"step_id,omitempty"`
+	Name       string                 `json:"name"`
+	Weight     int                    `json:"weight"`
+	Subject    string                 `json:"subject"`
+	BodyHTML   string                 `json:"body_html"`
+	BodyPlain  string                 `json:"body_plain"`
+	IsControl  bool                   `json:"is_control"`
+	IsActive   bool                   `json:"is_active"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+}
+
+type CreateCampaignABVariantRequest struct {
+	Name       string                 `json:"name" binding:"required"`
+	SequenceID *uuid.UUID             `json:"step_id,omitempty"`
+	Weight     int                    `json:"weight"`
+	Subject    string                 `json:"subject,omitempty"`
+	BodyHTML   string                 `json:"body_html,omitempty"`
+	BodyPlain  string                 `json:"body_plain,omitempty"`
+	IsControl  bool                   `json:"is_control"`
+	IsActive   *bool                  `json:"is_active,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type UpdateCampaignABVariantRequest struct {
+	Name      *string                `json:"name,omitempty"`
+	Weight    *int                   `json:"weight,omitempty"`
+	Subject   *string                `json:"subject,omitempty"`
+	BodyHTML  *string                `json:"body_html,omitempty"`
+	BodyPlain *string                `json:"body_plain,omitempty"`
+	IsControl *bool                  `json:"is_control,omitempty"`
+	IsActive  *bool                  `json:"is_active,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type VariantSelection struct {
+	VariantID *uuid.UUID `json:"variant_id,omitempty"`
+	Subject   string     `json:"subject"`
+	BodyHTML  string     `json:"body_html"`
+	BodyPlain string     `json:"body_plain"`
+}
+
+type TaskDeadLetter struct {
+	ID          uuid.UUID              `json:"id"`
+	TaskID      uuid.UUID              `json:"task_id"`
+	TaskType    string                 `json:"task_type"`
+	Payload     map[string]interface{} `json:"payload"`
+	LastError   string                 `json:"last_error"`
+	Attempts    int                    `json:"attempts"`
+	MaxAttempts int                    `json:"max_attempts"`
+	Status      string                 `json:"status"`
+	NextRetryAt *time.Time             `json:"next_retry_at,omitempty"`
+	ReplayedAt  *time.Time             `json:"replayed_at,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+type ReplyIntentType string
+
+const (
+	ReplyIntentPositive    ReplyIntentType = "positive"
+	ReplyIntentNegative    ReplyIntentType = "negative"
+	ReplyIntentOutOfOffice ReplyIntentType = "out_of_office"
+	ReplyIntentQuestion    ReplyIntentType = "question"
+	ReplyIntentNeutral     ReplyIntentType = "neutral"
+)
+
+type ReplyIntentRecord struct {
+	ID             uuid.UUID              `json:"id"`
+	OrganizationID uuid.UUID              `json:"organization_id"`
+	ContactEmail   string                 `json:"contact_email"`
+	CampaignID     *uuid.UUID             `json:"campaign_id,omitempty"`
+	TaskID         *uuid.UUID             `json:"task_id,omitempty"`
+	Intent         ReplyIntentType        `json:"intent"`
+	Confidence     float64                `json:"confidence"`
+	ActionTaken    string                 `json:"action_taken"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+}
+
+type PreflightCheckResult struct {
+	Key         string `json:"key"`
+	Passed      bool   `json:"passed"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+type PreflightReport struct {
+	ID              uuid.UUID              `json:"id"`
+	OrganizationID  uuid.UUID              `json:"organization_id"`
+	CampaignID      uuid.UUID              `json:"campaign_id"`
+	Passed          bool                   `json:"passed"`
+	Score           int                    `json:"score"`
+	Checks          []PreflightCheckResult `json:"checks"`
+	Recommendations []string               `json:"recommendations"`
+	CreatedAt       time.Time              `json:"created_at"`
+}
+
+type DeliverabilityDashboard struct {
+	From                 time.Time `json:"from"`
+	To                   time.Time `json:"to"`
+	EventsTotal          int       `json:"events_total"`
+	BounceCount          int       `json:"bounce_count"`
+	ComplaintCount       int       `json:"complaint_count"`
+	UnsubscribeCount     int       `json:"unsubscribe_count"`
+	ReplyCount           int       `json:"reply_count"`
+	OpenCount            int       `json:"open_count"`
+	ClickCount           int       `json:"click_count"`
+	SuppressedRecipients int       `json:"suppressed_recipients"`
+	DLQPending           int       `json:"dlq_pending"`
+	IntentPositive       int       `json:"intent_positive"`
+	IntentNegative       int       `json:"intent_negative"`
+	IntentOOO            int       `json:"intent_out_of_office"`
+	IntentQuestion       int       `json:"intent_question"`
+	IntentNeutral        int       `json:"intent_neutral"`
+
+	// Computed rates (percent, 0-100; 0 when no sends in the window). EmailsSent
+	// is the count of completed campaign sends in the window (rate denominator).
+	EmailsSent    int     `json:"emails_sent"`
+	BounceRate    float64 `json:"bounce_rate"`
+	ComplaintRate float64 `json:"complaint_rate"`
+	OpenRate      float64 `json:"open_rate"`
+	ClickRate     float64 `json:"click_rate"`
+	ReplyRate     float64 `json:"reply_rate"`
+
+	// Seed inbox-placement (nil when there are no seed samples in the window).
+	SpamPlacementRate  *float64 `json:"spam_placement_rate,omitempty"`
+	InboxPlacementRate *float64 `json:"inbox_placement_rate,omitempty"`
+	PlacementSamples   int      `json:"placement_samples"`
+
+	// Overall health band for the org window (from the documented thresholds).
+	Band string `json:"band"`
+	// Score is the 0-100 composite deliverability score for the window.
+	Score int `json:"score"`
+
+	Timeseries []DeliverabilityDailyPoint `json:"timeseries"`
+	ByMailbox  []MailboxDeliverability    `json:"by_mailbox"`
+	ByCampaign []CampaignDeliverability   `json:"by_campaign"`
+	// ByProvider breaks seed placement results down per recipient provider.
+	ByProvider []ProviderPlacement `json:"by_provider"`
+	// WarmupPlacement is the continuous warmup-derived placement signal per
+	// recipient domain (inbox = verified arrivals not flagged spam).
+	WarmupPlacement []WarmupDomainPlacement `json:"warmup_placement"`
+}
+
+// DeliverabilityDailyPoint is one UTC day in the deliverability timeseries.
+type DeliverabilityDailyPoint struct {
+	Date         string `json:"date"` // YYYY-MM-DD (UTC)
+	Sent         int    `json:"sent"`
+	Bounces      int    `json:"bounces"`
+	Complaints   int    `json:"complaints"`
+	Opens        int    `json:"opens"`
+	Clicks       int    `json:"clicks"`
+	Replies      int    `json:"replies"`
+	Unsubscribes int    `json:"unsubscribes"`
+}
+
+// MailboxDeliverability is one mailbox's bounce/complaint posture in the window.
+type MailboxDeliverability struct {
+	EmailAccountID uuid.UUID `json:"email_account_id"`
+	Email          string    `json:"email"`
+	Sent           int       `json:"sent"`
+	Bounces        int       `json:"bounces"`
+	Complaints     int       `json:"complaints"`
+	BounceRate     float64   `json:"bounce_rate"`
+	ComplaintRate  float64   `json:"complaint_rate"`
+	Band           string    `json:"band"`
+}
+
+// CampaignDeliverability is one campaign's bounce/complaint posture in the window.
+type CampaignDeliverability struct {
+	CampaignID    uuid.UUID `json:"campaign_id"`
+	Name          string    `json:"name"`
+	Sent          int       `json:"sent"`
+	Bounces       int       `json:"bounces"`
+	Complaints    int       `json:"complaints"`
+	BounceRate    float64   `json:"bounce_rate"`
+	ComplaintRate float64   `json:"complaint_rate"`
+	Band          string    `json:"band"`
+}
+
+// ProviderPlacement is one recipient provider's seed placement rollup in the
+// window (from placement_results; folders mirror the table CHECK constraint).
+type ProviderPlacement struct {
+	Provider   string  `json:"provider"`
+	Samples    int     `json:"samples"`
+	Inbox      int     `json:"inbox"`
+	Promotions int     `json:"promotions"`
+	Spam       int     `json:"spam"`
+	Other      int     `json:"other"`
+	InboxRate  float64 `json:"inbox_rate"`
+	SpamRate   float64 `json:"spam_rate"`
+}
+
+// WarmupDomainPlacement is one recipient domain's warmup placement rollup:
+// Delivered counts verified warmup arrivals, Spam the ones flagged into junk.
+type WarmupDomainPlacement struct {
+	Provider  string  `json:"provider"`
+	Domain    string  `json:"domain"`
+	Delivered int     `json:"delivered"`
+	Spam      int     `json:"spam"`
+	InboxRate float64 `json:"inbox_rate"`
+	SpamRate  float64 `json:"spam_rate"`
+}
+
+// DeliverabilityBand maps bounce%/complaint%/spam-placement% to a health band
+// using the documented shared-pool thresholds (see CLAUDE.md). Rates are on the
+// percent scale (0-100), so complaintRate>=0.03 means 0.03% (3 basis points),
+// bounceRate>=10 means 10%. Worst band wins.
+func DeliverabilityBand(bounceRate, complaintRate, spamRate float64) string {
+	switch {
+	case complaintRate >= 0.30 || bounceRate >= 10 || spamRate >= 40:
+		return "blocked"
+	case complaintRate >= 0.10 || bounceRate >= 5 || spamRate >= 20:
+		return "quarantine"
+	case complaintRate >= 0.03 || spamRate >= 10:
+		return "warning"
+	default:
+		return "healthy"
+	}
+}
+
+// DeliverabilityScore folds the same three rates the band uses into a 0-100
+// score: each penalty saturates at the "blocked" threshold of its metric, so
+// any single metric in the blocked band alone costs its full weight.
+func DeliverabilityScore(bounceRate, complaintRate, spamRate float64) int {
+	penalty := math.Min(40, bounceRate*4) + // 10% bounce = full 40
+		math.Min(30, complaintRate*100) + // 0.30% complaints = full 30
+		math.Min(40, spamRate) // 40% spam placement = full 40
+	score := int(math.Round(100 - penalty))
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+// Rate is a divide-by-zero-safe percentage (count/total*100).
+func Rate(count, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(count) / float64(total) * 100
+}
+
+type ABVariantStats struct {
+	VariantID   uuid.UUID `json:"variant_id"`
+	VariantName string    `json:"variant_name"`
+	TotalSent   int       `json:"total_sent"`
+	Opened      int       `json:"opened"`
+	Clicked     int       `json:"clicked"`
+	Replied     int       `json:"replied"`
+	Bounced     int       `json:"bounced"`
+	OpenRate    float64   `json:"open_rate"`
+	ClickRate   float64   `json:"click_rate"`
+	ReplyRate   float64   `json:"reply_rate"`
+	BounceRate  float64   `json:"bounce_rate"`
+}
+
+type ABWinnerAnalysis struct {
+	CampaignID  uuid.UUID        `json:"campaign_id"`
+	Variants    []ABVariantStats `json:"variants"`
+	WinnerID    *uuid.UUID       `json:"winner_id,omitempty"`
+	WinnerName  string           `json:"winner_name,omitempty"`
+	WinningRule string           `json:"winning_rule"`
+	Confidence  string           `json:"confidence"`
+}
+
+func DefaultAdvancedOutreachSettings() AdvancedOutreachSettings {
+	return AdvancedOutreachSettings{
+		BouncePipeline: BouncePipelineSettings{
+			Enabled:                     true,
+			AutoSuppressOnBounce:        true,
+			AutoSuppressOnComplaint:     true,
+			AutoSuppressOnUnsubscribe:   true,
+			AutoPauseCampaignOnSpike:    true,
+			PauseBounceRateThreshold:    8,
+			PauseComplaintRateThreshold: 1.5,
+		},
+		TaskReliability: TaskReliabilitySettings{
+			Enabled:                true,
+			DLQEnabled:             true,
+			MaxAttempts:            5,
+			ExecutionWindowSeconds: 300,
+		},
+		ABTesting: ABTestingSettings{
+			Enabled:            true,
+			DefaultWinningRule: "reply_rate",
+			AutoPromoteWinner:  false,
+			MinSampleSize:      30,
+		},
+		ReplyIntent: ReplyIntentSettings{
+			Enabled:                 true,
+			PositiveKeywords:        []string{"interested", "sounds good", "let's talk", "book", "demo", "pricing"},
+			NegativeKeywords:        []string{"not interested", "unsubscribe", "remove me", "stop", "no thanks"},
+			OutOfOfficeKeywords:     []string{"out of office", "ooo", "vacation", "automatic reply"},
+			QuestionKeywords:        []string{"?", "how", "what", "when", "price"},
+			AutoCreateCRMTask:       true,
+			AutoPauseOnNegative:     false,
+			AutoSuppressOnUnsubWord: true,
+		},
+		SendTimeOptimization: SendTimeOptimizationSettings{
+			// Off by default: turning it on delays sends to reach the
+			// recipient's business hours, which must be a choice the workspace
+			// makes rather than one that changes its sending overnight.
+			Enabled:                 false,
+			UseContactTimezone:      true,
+			DefaultContactTimezone:  "UTC",
+			PreferredHours:          []int{9, 10, 11, 14, 15, 16},
+			WeekendWeightMultiplier: 0.5,
+		},
+		Preflight: PreflightValidationSettings{
+			Enabled:                  true,
+			CheckTrackingDomain:      true,
+			CheckUnsubscribeHeader:   true,
+			CheckABVariantConfigured: false,
+			CheckDailyLimit:          true,
+			CheckScheduleWindow:      true,
+			CheckContentScore:        true,
+			MinContentScore:          60,
+		},
+		Dashboard: DeliverabilityDashboardSettings{
+			Enabled:            true,
+			ShowSuppressionLog: true,
+			ShowIntentSummary:  true,
+			ShowDLQStats:       true,
+		},
+		Custom: map[string]interface{}{},
+	}
+}

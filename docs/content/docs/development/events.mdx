@@ -1,0 +1,134 @@
+---
+title: Event system
+description: The event bus topics, envelopes, and realtime fanout that connect Dakiya Mail's services.
+---
+
+Dakiya Mail's services communicate asynchronously through a pluggable event bus. The default self-host build uses NATS JetStream with JSON encoding; Kafka with Avro and Confluent Schema Registry is an opt-in build for cloud deployments. The realtime dashboard fanout is a separate, simpler pub/sub channel described at the end of this page.
+
+## Transport and codec
+
+The bus is an abstraction (`internal/infrastructure/eventbus/`) with two providers, selected by `EVENTBUS_PROVIDER`:
+
+- `nats`: NATS JetStream. One durable stream (default name `dakiya`) holds every topic as a subject under a prefix: topic `jobs.worker-events` becomes subject `dakiya.jobs.worker-events`. Messages are retained for 7 days, consumer groups map to JetStream durable consumers, and failed handlers are redelivered up to 10 times. This is what `docker-compose.yml` runs.
+- `kafka`: Apache Kafka behind the `kafka` Go build tag. The default binaries do not include it (no librdkafka, no CGO); build with `GO_TAGS=kafka` to enable it, otherwise `EVENTBUS_PROVIDER=kafka` fails at boot with a clear error.
+
+Message encoding is orthogonal to transport, selected by `CODEC_PROVIDER`:
+
+- `json`: plain JSON, no external dependencies. Required for the self-host stack (the worker command and result envelopes carry untyped bodies Avro cannot serialize).
+- `avro`: Avro with Confluent Schema Registry (`SCHEMA_REGISTRY_URL` plus optional key/secret), also behind the `kafka` build tag. The topic name is used as the Schema Registry subject.
+
+The Rust tracking service follows the same switch: it publishes JSON to JetStream by default, and only speaks Kafka plus Avro when compiled with its `kafka` cargo feature.
+
+## Topics
+
+These are the real topic names. On NATS each is prefixed with the subject prefix (default `dakiya.`).
+
+| Topic | Producer | Consumer | Purpose |
+|-------|----------|----------|---------|
+| `w.<worker-uuid>` | Backend | The worker with that ID | Commands to one specific worker |
+| `jobs.worker-events` | Workers | Consumer service | Sync and send results, mailbox updates, health |
+| `tracking-events` | Tracking service | Consumer service | Email opens and link clicks |
+| `email-events` | Backend | None (write-only analytics stream) | Campaign send records |
+| `warmup-events` | Backend | None (write-only analytics stream) | Warmup send records |
+
+Each worker subscribes only to its own `w.<worker-uuid>` topic; the UUID is the worker's identity (derived from its public IP at install time). The consumer service reads `jobs.worker-events` with the consumer group `consumer-group` and `tracking-events` with the group `tracking-consumer`.
+
+## Worker commands
+
+The backend drives workers with a `{type, body}` envelope (`internal/models/event.go`):
+
+```json
+{
+  "type": "SEND_EMAIL",
+  "body": { ... }
+}
+```
+
+Types: `SEND_EMAIL`, `ADD_EMAIL`, `REMOVE_EMAIL`, `EMAIL_VALIDATION`, `WARMUP_ACTION`. Each has a typed body struct in `internal/models/` (for example `models.SendEmail` for `SEND_EMAIL`).
+
+## Worker results
+
+Workers publish the same envelope shape back on `jobs.worker-events`:
+
+```json
+{
+  "type": "NEW_EMAIL",
+  "body": { ... }
+}
+```
+
+Types: `NEW_EMAIL`, `INBOUND_BOUNCE`, `REMOVE_EMAIL`, `FLAGS_ADD`, `FLAGS_REMOVE`, `UPDATE_EMAIL`, `UPDATE_MAILBOX`, `DELETE_MAILBOX`, `TOKEN_UPDATE`, `HISTORY_ID_UPDATE`, `GRAPH_DELTA_UPDATE`, `SYNC_STATE`, `EMAIL_SENT`, `EMAIL_FAILED`, `EMAIL_AUTH_ERROR`, `EMAIL_DISABLED`, `EMAIL_RATE_LIMITED`, `EMAIL_SERVER_ERROR`, `WORKER_HEALTH`.
+
+The consumer registers one handler per type (`internal/app/consumer/events.go`); unregistered types are logged and acknowledged rather than redelivered.
+
+Every `SEND_EMAIL` is answered with exactly one per-task result: `EMAIL_SENT` (the provider accepted the message; the consumer records the wire Message-ID on the task) or `EMAIL_FAILED` (a `SendEmailResult` carrying the error code and message). The control plane stamps a campaign step sent when it hands the send to the worker, so `EMAIL_FAILED` is what walks that back: the consumer marks the task failed, clears the step's `sent_at` and counts the attempt on `campaign_contact_progress`, gives the send back to the campaign's daily counters, writes the failure to the campaign activity log, and reopens a campaign that completed while the send was in flight. After `CampaignSendMaxAttempts` (5) the lead is marked failed and routing drops it; a `RECIPIENT_REJECTED` result (refused at RCPT) skips the retries and is ingested as a bounce instead. Account-level conditions (`EMAIL_AUTH_ERROR`, `EMAIL_DISABLED`, `EMAIL_RATE_LIMITED`, `EMAIL_SERVER_ERROR`) are raised in addition to, never instead of, the per-task result; they carry an `EmailErrorEvent` and act on the mailbox. A worker that does not hold the mailbox yet leaves the send for a few redeliveries before reporting it failed, and the backend never publishes a send to a worker that is not heartbeating.
+
+`SYNC_STATE` is the worker's relay of a mailbox's sync state (backfill progress and cursor, fair-use throttle, last-synced time). It carries the full state rather than a delta, so a lost event is repaired by the next one; the consumer writes it to `email_sync_state` and the backend hands it back inside `ADD_EMAIL` on the next load, which is what lets a replaced worker resume an import instead of restarting it.
+
+## Tracking events
+
+Produced by the Rust tracking service when a pixel loads or a tracked link is clicked, consumed into campaign stats and deliverability data:
+
+```json
+{
+  "event_type": "EMAIL_OPENED",
+  "task_id": "uuid",
+  "original_url": "https://example.com/page",
+  "timestamp": "2026-01-29T12:00:00Z",
+  "user_agent": "Mozilla/5.0...",
+  "ip_hash": "sha256..."
+}
+```
+
+`event_type` is `EMAIL_OPENED` or `EMAIL_CLICKED`; `original_url` is set only for clicks; IPs are stored as hashes, never raw. The struct is `events.TrackingEvent` in `internal/events/schemas.go`, mirrored in `tracking/src/events.rs`.
+
+Website page views do not ride this topic. The tracking service forwards each accepted view to the backend's internal API (`POST /api/v1/internal/page-hits`) instead, because the backend is where the user agent and IP are turned into device and location, and the IP must not sit in a durable stream on the way there.
+
+## Analytics events
+
+The backend records sends on two write-only streams for downstream analytics: `email-events` carries `EMAIL_SENT` records (task, account, campaign, contact, message ID, recipient), and `warmup-events` carries `WARMUP_EMAIL_SENT` records (sender and target accounts, whether it was a reply). Nothing in the repo consumes them today; they exist so an external pipeline can tap the stream.
+
+## Realtime fanout
+
+Dashboard realtime does not ride the event bus. Backend and consumer publish JSON events on a dedicated pub/sub transport (`internal/infrastructure/pubsub/`), and the Elixir realtime service subscribes and pushes to WebSocket clients:
+
+- Default: Redis pub/sub on the channel `realtime:events`. No configuration beyond a shared Redis.
+- `PUBSUB_ENABLED=true`: Google Cloud Pub/Sub instead (requires `GCP_PROJECT_ID`); the backend creates a fixed set of topics and matching `-sub` subscriptions on boot.
+
+Events embed a `BaseEvent` (`event_type`, `user_id`, `timestamp`) plus routing fields on the concrete payload (`org_id`, `campaign_id`, `email_account_id`, `operation_id`). The Elixir broadcaster routes purely on those body fields to the `user:`, `org:`, `campaign:`, `account:`, and `bulk:` channel topics. The event type list and permission gating are documented in the [realtime API reference](/api/realtime/).
+
+## Configuration
+
+```bash
+# Transport
+EVENTBUS_PROVIDER=nats            # nats | kafka (kafka needs the kafka build tag)
+NATS_URL=nats://nats:4222
+NATS_STREAM_NAME=dakiya          # optional, default dakiya
+NATS_SUBJECT_PREFIX=dakiya       # optional, default dakiya
+EVENTBUS_HANDLER_TIMEOUT=30s      # optional, per-message handler timeout
+
+# Codec
+CODEC_PROVIDER=json               # json | avro (avro needs the kafka build tag)
+
+# Kafka path only
+KAFKA_BOOTSTRAP_SERVERS=broker1:9092,broker2:9092
+KAFKA_SASL_USERNAME=...
+KAFKA_SASL_PASSWORD=...
+SCHEMA_REGISTRY_URL=https://schema.example.com
+SCHEMA_REGISTRY_KEY=...
+SCHEMA_REGISTRY_SECRET=...
+KAFKA_TRACKING_TOPIC=tracking-events   # optional, default tracking-events
+
+# Realtime fanout
+PUBSUB_ENABLED=false              # true switches Redis pub/sub to Google Cloud Pub/Sub
+```
+
+## Code references
+
+- Bus abstraction and providers: `internal/infrastructure/eventbus/`
+- Codec selection: `internal/infrastructure/codec/`
+- Topic names: `internal/infrastructure/kafka/topics.go`, `internal/events/schemas.go`
+- Envelopes: `internal/models/event.go`
+- Consumer dispatch: `internal/app/consumer/events.go`
+- Tracking producer: `tracking/src/nats.rs`, `tracking/src/kafka.rs`
+- Realtime fanout: `internal/infrastructure/pubsub/`, `realtime/lib/realtime/redis/event_subscriber.ex`

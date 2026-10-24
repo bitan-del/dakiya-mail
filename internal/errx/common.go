@@ -1,0 +1,185 @@
+package errx
+
+import (
+	"fmt"
+
+	"github.com/bitan-del/dakiya-mail/internal/config"
+)
+
+var (
+	ErrInvalid = New(BadRequest, "The request body contains invalid or malformed JSON.")
+
+	ErrLock      = New(BadRequest, "Resource is locked. Another process is running, please wait.")
+	ErrColor     = New(BadRequest, "Hex color must be a valid string.")
+	ErrUuid      = New(BadRequest, "The id must be a valid uuid.")
+	ErrCategory  = New(BadRequest, "Category doesn't exists.")
+	ErrTag       = New(BadRequest, "Tag doesn't exists.")
+	ErrBitmask   = New(BadRequest, "Invalid bitmask value.")
+	ErrRole      = New(BadRequest, "Role doesn't exists.")
+	ErrPosition  = New(BadRequest, "Invalid position.")
+	ErrTimezone  = New(BadRequest, "Timezone doesn't exists.")
+	ErrTime      = New(BadRequest, "Invalid time format.")
+	ErrNotEnough = New(BadRequest, "Not enough data to perform this action.")
+	ErrLimit     = New(BadRequest, "Limit must be between 10 and 200.")
+
+	// Authorization
+	ErrToken = New(Unauthorized, "Invalid or expired token.")
+	ErrAuth  = New(Unauthorized, "Missing or invalid Authorization header.")
+
+	ErrUser        = New(BadRequest, "User doesn't exists.")
+	ErrPassword    = New(BadRequest, "Password must be at least 8 characters long.")
+	ErrEmail       = New(BadRequest, "Invalid email address.")
+	ErrCredentials = New(BadRequest, "Invalid email or password.")
+	ErrSession     = New(BadRequest, "Invalid or expired session.")
+	ErrCodeLimit   = New(BadRequest, "Too many attempts. Start a new session and try again later.")
+	ErrCode        = New(BadRequest, "Invalid or expired verification code.")
+	ErrAuthLimit   = New(BadRequest, "Too many attempts, please try again later.")
+
+	// ErrMailUndeliverable separates "we could not send you the email" from
+	// every other internal fault. It used to be a bare 500, which on a
+	// self-hosted install with no working relay is the single least helpful
+	// thing to show someone who cannot log in.
+	ErrMailUndeliverable = New(Internal, "We couldn't send the email. If you administer this server, check the mail transport configuration.")
+
+	// Registration refusals. Each names the deployment policy rather than the
+	// person, and carries its own identifier so a client can branch on the
+	// specific condition instead of string-matching a 403.
+	ErrRegistrationInviteOnly = NewWithIdentifier(Forbidden, "registration_invite_only",
+		"This server is invite only. Ask an administrator to invite you, then open the link in the invitation to create your account. See https://docs.dakiyamail.com/development/accounts-and-access/")
+	// ErrRegistrationClosed is returned when signups are off entirely. The
+	// operator sets DISABLE_REGISTRATION=true, and no invitation overrides it.
+	ErrRegistrationClosed = NewWithIdentifier(Forbidden, "registration_closed",
+		"This server is not accepting new accounts. See https://docs.dakiyamail.com/development/accounts-and-access/")
+	ErrInvitationInvalid = NewWithIdentifier(Forbidden, "invitation_invalid",
+		"That invitation link is invalid, expired, or was issued for a different email address. Ask for a fresh one.")
+
+	// First-run claim. Both name the command that resolves them, because the
+	// person who sees these is the person who can run it.
+	ErrSetupToken = NewWithIdentifier(Unauthorized, "setup_token_invalid",
+		"That setup link is invalid, already used, or expired. Print a new one with `dakiyactl setup-link`.")
+	ErrSetupComplete = NewWithIdentifier(Forbidden, "setup_already_complete",
+		"This instance has already been set up. Sign in, or recover access with `dakiyactl user reset-password`.")
+
+	// ErrSSOBrowser is a sign-in collected somewhere other than where it
+	// started. The handoff is deliberately non-transferable, so a link someone
+	// forwarded (or was sent) cannot sign the recipient into the sender's
+	// workspace.
+	ErrSSOBrowser = NewWithIdentifier(Unauthorized, "sso_wrong_browser",
+		"Finish signing in in the browser you started in. Open the sign-in page there and try again.")
+
+	ErrExternalCode     = New(BadRequest, "Invalid or expired code, please try again.")
+	ErrExternalEmail    = New(BadRequest, "Invalid or unverified email address.")
+	ErrExternalProvider = New(BadRequest, "This sign-in method isn't available on this server.")
+
+	// Sessions
+	ErrSessionNotFound = New(NotFound, "Session not found.")
+	ErrSessionCurrent  = New(BadRequest, "You can't revoke the session you're currently using. Use sign out instead.")
+
+	// Passkeys (WebAuthn)
+	ErrPasskey         = New(BadRequest, "We couldn’t verify that passkey. Please try again.")
+	ErrPasskeySession  = New(BadRequest, "Your passkey request expired. Please start again.")
+	ErrPasskeyName     = New(BadRequest, "Passkey name must be between 1 and 60 characters.")
+	ErrPasskeyNotFound = New(NotFound, "Passkey not found.")
+	ErrPasskeyExists   = New(Conflict, "This passkey is already registered.")
+	ErrPasskeyNone     = New(BadRequest, "No passkey was found for this account.")
+
+	// Organization
+	//
+	// Raised where a workspace is required to scope a write or a policy check.
+	// Every entitlement, limit and suppression rule is org-scoped, so a request
+	// without one is refused rather than run unscoped.
+	ErrNoOrganization = NewWithIdentifier(BadRequest, "no_organization",
+		"No workspace selected. Pick a workspace and try again.")
+
+	// Roles
+	ErrRoleName = New(BadRequest, "Role name length must be between 3 and 100 characters.")
+
+	// Captch
+	ErrCaptcha = New(BadRequest, "We couldn’t verify you’re human. Please try the security check again or reload the page.")
+
+	// Group
+	ErrGroupTitle = New(BadRequest, "The title length must be between 1 and 50 characters.")
+	ErrGroupMax   = New(BadRequest, "You reached the maximum amount.")
+
+	// Email
+	ErrEmailCredentials     = New(BadRequest, "Invalid email credentials.")
+	ErrEmailValidation      = New(BadRequest, "Deadline exceed, try again later.")
+	ErrEmailOnboardProvider = New(BadRequest, "Unsupported email provider. Use 'gmail', 'outlook', or 'smtp_imap'.")
+	// Raised when the provider is supported but this deployment has no OAuth
+	// client for it. Self-host only: the hosted product always has both set. The
+	// message names the variables because the person hitting this is usually the
+	// same person who can fix it.
+	ErrEmailOnboardGoogleNotConfigured = NewWithIdentifier(ServiceUnavailable, "mailbox_provider_not_configured",
+		"Gmail is not configured on this deployment. Set BOX_GOOGLE_CLIENT_ID and BOX_GOOGLE_CLIENT_SECRET in your .env, then restart. See https://docs.dakiyamail.com/development/deployment-guide/#connect-mailboxes")
+	ErrEmailOnboardOutlookNotConfigured = NewWithIdentifier(ServiceUnavailable, "mailbox_provider_not_configured",
+		"Microsoft 365 is not configured on this deployment. Set BOX_OUTLOOK_CLIENT_ID and BOX_OUTLOOK_CLIENT_SECRET in your .env, then restart. See https://docs.dakiyamail.com/development/deployment-guide/#connect-mailboxes")
+	ErrEmailOnboardState         = New(BadRequest, "Invalid or expired onboarding state.")
+	ErrEmailOnboardCode          = New(BadRequest, "Authorization code is missing or invalid.")
+	ErrEmailOnboardExchange      = New(BadRequest, "Could not exchange the authorization code with the provider.")
+	ErrEmailOnboardUserInfo      = New(BadRequest, "Could not read account details from the provider.")
+	ErrEmailOnboardAlreadyExists = New(Conflict, "This email account is already connected.")
+	ErrEmailOnboardNoWorker      = New(ServiceUnavailable, "No mailbox workers are available right now. Please try again shortly.")
+	ErrEmailOnboardInboxLimit    = New(Forbidden, "A free workspace holds up to 10 mailboxes. Subscribe to add more.")
+	ErrEmailOnboardTrialExpired  = New(Forbidden, "A free workspace holds up to 10 mailboxes. Subscribe to add more.")
+	ErrEmailSMTPHost             = New(BadRequest, "SMTP host is required.")
+	ErrEmailSMTPPort             = New(BadRequest, "SMTP port must be 465 or 587.")
+	ErrEmailIMAPHost             = New(BadRequest, "IMAP host is required.")
+	ErrEmailIMAPPort             = New(BadRequest, "IMAP port must be a positive integer.")
+	ErrEmailCredentialsRequired  = New(BadRequest, "SMTP and IMAP credentials are required.")
+	ErrEmailTrackingDomain       = New(BadRequest, "Invalid tracking domain.")
+	ErrEmailTrackingDomainLength = New(BadRequest, "Tracking domain is too long (max 253 characters).")
+	ErrEmailName                 = New(BadRequest, "Invalid name. Must be 2–100 characters and contain only letters, numbers, spaces, '-', '.', or '’'.")
+	ErrEmailSignaturePlain       = New(BadRequest, "Plain email signature is too long.")
+	ErrEmailSignatureHTML        = New(BadRequest, "HTML email signature is too long.")
+	ErrEmailMinWaitTime          = New(BadRequest, "Minimum time gap between emails must be between 0 and 86400 minutes.")
+	ErrEmailCampaignLimit        = New(BadRequest, "Campaign limit must be between 0 and 100.")
+	ErrEmailTimezone             = New(BadRequest, "Invalid timezone. Use an IANA name such as Europe/London or America/Denver, or leave it empty to follow the campaign.")
+	ErrEmailWarmupBase           = New(BadRequest, "Warmup base must be between 0 and 100.")
+	ErrEmailWarmupMax            = New(BadRequest, "Warmup max amount must be between 0 and 100.")
+	ErrEmailWarmupIncrease       = New(BadRequest, "Warmup increase amount must be between 0 and 100.")
+	ErrEmailReplyRate            = New(BadRequest, "Warmup reply rate must be between 0 and 100.")
+
+	// Disconnecting a mailbox has to reach the machine syncing it before the
+	// row goes: afterwards there is no assignment left to read and nothing that
+	// can repair a missed removal, so the mailbox would sync on forever.
+	ErrEmailWorkerUnreachable = NewWithIdentifier(ServiceUnavailable, "mailbox_worker_unreachable",
+		"This mailbox could not be disconnected right now because the machine syncing it could not be reached. Nothing was removed, so try again in a moment.")
+
+	// Campaign
+	ErrCampaignName        = New(BadRequest, "Campaign name length must be between 3 and 50 characters.")
+	ErrCampaignDescription = New(BadRequest, "Campaign description length must be below 300 characters.")
+	ErrCampaignDailyLimit  = New(BadRequest, "Daily limit must be between 3 and 10000000.")
+	ErrCampaignStartDate   = New(BadRequest, "Start date cannot be in the past. Pick today or later, or clear it (null) to start right away.")
+	ErrCampaignEndDate     = New(BadRequest, "End date must be in the future.")
+	ErrCampaignLimit       = New(BadRequest, "You reached your limit for campaigns, please try again later.")
+
+	// Sequence
+	ErrSequenceName      = New(BadRequest, "Sequence name cannot be longer than 50 characters.")
+	ErrSequenceSubject   = New(BadRequest, "Sequence subject cannot be longer than 100 characters.")
+	ErrSequenceBody      = New(BadRequest, fmt.Sprintf("Sequence body cannot be longer than %d characters.", config.SequenceBodyLimit))
+	ErrSequenceBranch    = New(BadRequest, "Invalid branching conditions.")
+	ErrSequenceBranchTo  = New(BadRequest, "Branch target must be another step in the same campaign and cannot create a cycle.")
+	ErrSequenceKind      = New(BadRequest, "Step kind must be email, action, or wait.")
+	ErrSequenceAction    = New(BadRequest, "Invalid action configuration for this step.")
+	ErrSequenceWaitAfter = New(BadRequest, fmt.Sprintf("Step wait must be between 0 and %d days.", config.SequenceWaitAfterMax))
+
+	// Contact
+	ErrContactSerialize = New(BadRequest, "Failed to serialize contact.")
+	ErrContactSize      = New(BadRequest, "Contact size cannot be bigger than 10KB.")
+
+	// Unibox
+	ErrUniboxLimit = New(BadRequest, fmt.Sprintf("Limit must be between %d and %d.", config.UniboxLimitMin, config.UniboxLimitMax))
+	ErrSeenMax     = New(BadRequest, "Cannot update more than 500 messages.")
+
+	// Servers
+	ErrIPAddr    = New(BadRequest, "Invalid IP Address.")
+	ErrPublicKey = New(BadRequest, "Invalid Public Key.")
+
+	// Advisor
+	ErrAdvisorNoAction     = New(BadRequest, "This recommendation doesn't have a one-click fix.")
+	ErrAdvisorNotApplied   = New(BadRequest, "This recommendation hasn't been applied, so there's nothing to undo.")
+	ErrAdvisorSnoozeRange  = New(BadRequest, "Snooze length must be between 1 and 90 days.")
+	ErrAdvisorBadSeverity  = New(BadRequest, "Minimum severity must be one of critical, high, medium, or low.")
+	ErrAdvisorFixForbidden = New(Forbidden, "You can see this recommendation but don't have permission to apply the change it makes.")
+	ErrAdvisorNoAgentFix   = New(BadRequest, "This recommendation needs a person: there's no change an agent can safely make for it.")
+)

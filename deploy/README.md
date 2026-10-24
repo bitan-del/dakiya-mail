@@ -1,0 +1,141 @@
+# Dakiya Mail Deployment
+
+Two distinct planes, deployed differently.
+
+| Plane | Services | How |
+|-------|----------|-----|
+| Control | backend, consumer, tracking, realtime, web | Container hosting in one region (Railway in production). Stable region-pinning so KMS/S3 calls stay local. |
+| Execution | worker | One process per VPS, anywhere with a public IPv4. Managed from the admin dashboard over SSH. |
+
+## Directory layout
+
+```
+deploy/
+├── docker/
+│   ├── backend.Dockerfile          # also builds the seed + migrate binaries
+│   ├── consumer.Dockerfile
+│   ├── worker.Dockerfile
+│   ├── realtime.Dockerfile
+│   ├── go-dev.Dockerfile           # hot-reload dev images (make app)
+│   ├── rust-dev.Dockerfile
+│   ├── elixir-dev.Dockerfile
+│   └── air.toml
+└── config/
+    └── env.example
+```
+
+The tracking Dockerfile lives at `tracking/Dockerfile`, and the frontends build from `web/Dockerfile` and `admin/Dockerfile` (nginx static builds with runtime config injection). The self-host compose is `docker-compose.yml` at the repo root.
+
+## Building images
+
+```bash
+docker build -f deploy/docker/backend.Dockerfile  -t dakiya/backend  .
+docker build -f deploy/docker/consumer.Dockerfile -t dakiya/consumer .
+docker build -f deploy/docker/worker.Dockerfile   -t dakiya/worker   .
+docker build -f deploy/docker/realtime.Dockerfile -t dakiya/realtime .
+docker build -f tracking/Dockerfile               -t dakiya/tracking tracking/
+docker build -f web/Dockerfile                    -t dakiya/web      web/
+docker build -f admin/Dockerfile                  -t dakiya/admin    admin/
+```
+
+The default builds have no Kafka/Avro support; add `--build-arg GO_TAGS=kafka` (Go images) or `--build-arg CARGO_FEATURES=kafka` (tracking) to opt in.
+
+GitHub Actions publishes these to GHCR automatically. See [the self-hosting guide](https://docs.dakiyamail.com/development/deployment-guide/).
+
+## Local development
+
+```bash
+make dev    # one-command native dev stack (infra + migrations + seed + app)
+make infra  # postgres, redis, nats, mailpit (leave running, shared across worktrees)
+make app    # backend, consumer, worker, tracking, realtime, web, admin (hot reload, in Docker)
+make seed   # rich fixtures
+make reset  # nuke volumes
+```
+
+Full reference: [local development](https://docs.dakiyamail.com/development/local-development/).
+
+## Deploying the control plane
+
+The Dockerfiles in `deploy/docker/` are the deployment unit. Production runs on Railway. Other valid targets: Fly.io, ECS Fargate, single-VPS systemd. Migrations run automatically on backend boot.
+
+Configuration is env-driven — see `deploy/config/env.example` for the full env reference, or [the self-hosting guide](https://docs.dakiyamail.com/development/deployment-guide/) for a step-by-step.
+
+### Realtime transport
+
+Backend, consumer, and the Elixir realtime service all pick their event transport from one flag, `PUBSUB_ENABLED`, so they cannot disagree:
+
+- `PUBSUB_ENABLED=false` (default): events bridge over Redis (`REDIS_URL`). No GCP needed. This is the local-dev and simple self-host path.
+- `PUBSUB_ENABLED=true`: events flow through Google Pub/Sub. Also set `GCP_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS_JSON` on every service. The backend and consumer auto-provision the realtime topics and their `<topic>-sub` pull subscriptions on boot (idempotent), so there is no manual `gcloud` step. The service account needs `roles/pubsub.editor`.
+
+Set the flag the same on all three services. A publisher on Pub/Sub with a subscriber on Redis silently drops every realtime event.
+
+## Worker deployment
+
+Workers run on per-VPS machines so cold-mail traffic spreads across many IPs. Worker identity is a deterministic UUIDv5 derived from the VPS's public IPv4 — same IP, same worker.
+
+Add a worker from the admin dashboard:
+
+1. Provision a VPS, note its public IP + root user
+2. Admin → Workers → Add Worker
+3. Copy the generated enrollment command
+4. Run it on the VPS as root
+
+The installer is served by the backend at `/worker-install.sh`. It exchanges the one-time token for worker config, writes `/etc/dakiya/worker.env`, configures systemd, enables a daily randomized self-update timer, and starts the worker container. The worker then heartbeats back to the backend and marks itself installed.
+
+The older SSH-managed path is still supported: paste the generated SSH public key into the VPS's `~/.ssh/authorized_keys`, then click Test and Install. From then on, lifecycle operations (restart, update, system updates, reboot, rotate keys, logs, uninstall) can happen from the dashboard.
+
+Manual install on the VPS is also supported:
+
+```bash
+curl -fsSL https://api.example.com/worker-install.sh | sudo bash -s -- \
+  --enroll wmenroll_... \
+  --api-base https://api.example.com
+
+# or fully manual, passing a prepared env file:
+sudo bash scripts/install-worker.sh \
+  --image ghcr.io/<owner>/dakiya/worker:prod \
+  --env-file worker.env
+```
+
+`scripts/install-worker.sh --help` lists every flag (`--ips` for multi-IP machines, `--update`, `--uninstall`, `--purge`, `--status`, `--no-auto-update`, plus the legacy Kafka/AWS prompts).
+
+### Why per-VPS instead of Kubernetes DaemonSet
+
+Cold-mail reputation lives at the IP level. K8s nodes typically NAT pods through a small set of egress IPs, so a per-node DaemonSet does not deliver IP diversity. Workers don't depend on Postgres, so cluster-level service discovery isn't needed. Spreading across VPS providers and regions is the only thing that actually moves the deliverability needle.
+
+### Worker env reference
+
+Workers in production should be assigned to a worker profile in the dashboard. The profile bundles all of these:
+
+| Env var | Source | Notes |
+|---------|--------|-------|
+| `APP_ENV` | profile | |
+| `EVENTBUS_PROVIDER` / `NATS_URL` | profile | `nats` on the default stack |
+| `CODEC_PROVIDER` | profile | `json` on the default stack |
+| `REDIS` | profile | full URL with embedded password; encrypted at rest |
+| `ENCRYPTED_KEYS_BACKEND_URL` | profile | the backend's public/internal URL |
+| `ENCRYPTED_KEYS_WORKER_TOKEN` | profile | must equal the backend's `INTERNAL_API_TOKEN` |
+| `BOX_GOOGLE_*` / `BOX_OUTLOOK_*` | profile | mailbox OAuth clients; needed for token refresh |
+| `KAFKA_*` / `SCHEMA_REGISTRY_*` | profile | Kafka path only; secrets encrypted at rest |
+| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | profile (via AWS credentials row) | only when using AWS KMS/S3; secret encrypted at rest |
+| `WORKER_TIER` | (worker row) | `shared` or `dedicated` |
+
+The worker does **not** open a Postgres connection. Do not add one.
+
+## Auto-update
+
+Each worker profile picks a release channel (`pinned` / `stable` / `dev`) and an `auto_update` toggle. When a GitHub release fires the webhook, the backend resolves the channel and (if `auto_update=true`) rolls every assigned worker. See [the self-hosting guide](https://docs.dakiyamail.com/development/deployment-guide/).
+
+## Health checks
+
+```bash
+curl http://localhost:8080/health    # backend
+curl http://localhost:3000/health   # tracking
+curl http://localhost:4000/health   # realtime
+```
+
+## Documentation
+
+- [Local development](https://docs.dakiyamail.com/development/local-development/)
+- [Self-hosting guide](https://docs.dakiyamail.com/development/deployment-guide/)
+- [Architecture](https://docs.dakiyamail.com/development/architecture/)

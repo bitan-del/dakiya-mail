@@ -1,0 +1,266 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/dakiya
+
+jobs:
+  validate-tag:
+    name: Validate Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major: ${{ steps.version.outputs.major }}
+      minor: ${{ steps.version.outputs.minor }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "major=$(echo "$VERSION" | cut -d. -f1)" >> $GITHUB_OUTPUT
+          echo "minor=$(echo "$VERSION" | cut -d. -f1-2)" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+  # Go services: the Dockerfiles build on $BUILDPLATFORM and cross-compile to
+  # each target arch, so one amd64 runner produces both platforms without QEMU.
+  build-go:
+    name: Build ${{ matrix.service }}
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, consumer, worker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/${{ matrix.service }}.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.ref_name }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.minor }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.major }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:prod
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # Frontends (web dashboard, admin panel): the pnpm build runs once on the
+  # build platform and its static output is served from nginx, so a single
+  # buildx build produces both arches without a per-arch rebuild.
+  build-frontend:
+    name: Build ${{ matrix.service }}
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, admin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.ref_name }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.minor }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.major }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:prod
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # Rust (tracking) and Elixir (realtime) have no cross-compiler; an emulated
+  # arm64 build under QEMU runs for an hour or more. Build each arch on a
+  # native runner and merge the digests into one manifest (the
+  # Docker-documented multi-runner pattern).
+  build-native:
+    name: Build ${{ matrix.service }} (${{ matrix.platform }})
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [tracking, realtime]
+        platform: [linux/amd64, linux/arm64]
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare platform pair
+        id: prep
+        run: echo "pair=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service == 'tracking' && './tracking' || '.' }}
+          file: ${{ matrix.service == 'tracking' && './tracking/Dockerfile' || format('deploy/docker/{0}.Dockerfile', matrix.service) }}
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ steps.prep.outputs.pair }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ steps.prep.outputs.pair }}
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.service }}-${{ steps.prep.outputs.pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-native:
+    name: Merge ${{ matrix.service }} manifest
+    needs: [validate-tag, build-native]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [tracking, realtime]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.service }}-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.ref_name }} \
+            -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.minor }} \
+            -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:v${{ needs.validate-tag.outputs.major }} \
+            -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:prod \
+            $(printf '${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@sha256:%s ' *)
+
+  create-release:
+    name: Create GitHub Release
+    needs: [validate-tag, build-go, build-frontend, merge-native]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        env:
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          .github/scripts/release-notes.sh "$TAG" > /tmp/changelog.md
+          cat /tmp/changelog.md
+
+      - name: Assemble release body
+        run: |
+          {
+            cat /tmp/changelog.md
+            cat <<'EOF'
+
+          ## Docker Images
+
+          All images are available at `ghcr.io/${{ github.repository_owner }}/dakiya`:
+
+          | Service | Image |
+          |---------|-------|
+          | Backend | `${{ env.IMAGE_PREFIX }}/backend:${{ github.ref_name }}` |
+          | Consumer | `${{ env.IMAGE_PREFIX }}/consumer:${{ github.ref_name }}` |
+          | Worker | `${{ env.IMAGE_PREFIX }}/worker:${{ github.ref_name }}` |
+          | Tracking | `${{ env.IMAGE_PREFIX }}/tracking:${{ github.ref_name }}` |
+          | Realtime | `${{ env.IMAGE_PREFIX }}/realtime:${{ github.ref_name }}` |
+          | Dashboard (web) | `${{ env.IMAGE_PREFIX }}/web:${{ github.ref_name }}` |
+          | Admin | `${{ env.IMAGE_PREFIX }}/admin:${{ github.ref_name }}` |
+
+          ## Deployment
+
+          This release will be automatically deployed to production.
+          EOF
+          } > /tmp/release-body.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: /tmp/release-body.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

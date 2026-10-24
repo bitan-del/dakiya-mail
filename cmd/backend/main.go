@@ -1,0 +1,2104 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/MicahParks/keyfunc/v3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconf "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/bitan-del/dakiya-mail/internal/api"
+	"github.com/bitan-del/dakiya-mail/internal/api/handler"
+	"github.com/bitan-del/dakiya-mail/internal/api/middleware"
+	"github.com/bitan-del/dakiya-mail/internal/app/admin"
+	"github.com/bitan-del/dakiya-mail/internal/app/adminoutreach"
+	"github.com/bitan-del/dakiya-mail/internal/app/advanced"
+	"github.com/getsentry/sentry-go"
+	"github.com/google/uuid"
+	"github.com/meszmate/apple-go"
+
+	"github.com/bitan-del/dakiya-mail/internal/app/advisor"
+	"github.com/bitan-del/dakiya-mail/internal/app/aiagent"
+	"github.com/bitan-del/dakiya-mail/internal/app/aitools"
+	"github.com/bitan-del/dakiya-mail/internal/app/analytics"
+	"github.com/bitan-del/dakiya-mail/internal/app/apikey"
+	"github.com/bitan-del/dakiya-mail/internal/app/audit"
+	"github.com/bitan-del/dakiya-mail/internal/app/auth"
+	behaviorapp "github.com/bitan-del/dakiya-mail/internal/app/behavior"
+	"github.com/bitan-del/dakiya-mail/internal/app/bootstrap"
+	"github.com/bitan-del/dakiya-mail/internal/app/campaign"
+	"github.com/bitan-del/dakiya-mail/internal/app/cipher"
+	"github.com/bitan-del/dakiya-mail/internal/app/cloudlink"
+	"github.com/bitan-del/dakiya-mail/internal/app/compose"
+	"github.com/bitan-del/dakiya-mail/internal/app/contact"
+	"github.com/bitan-del/dakiya-mail/internal/app/credits"
+	"github.com/bitan-del/dakiya-mail/internal/app/creditwatch"
+	"github.com/bitan-del/dakiya-mail/internal/app/crm"
+	"github.com/bitan-del/dakiya-mail/internal/app/dailythrottle"
+	"github.com/bitan-del/dakiya-mail/internal/app/dangerzone"
+	"github.com/bitan-del/dakiya-mail/internal/app/discount"
+	"github.com/bitan-del/dakiya-mail/internal/app/email"
+	"github.com/bitan-del/dakiya-mail/internal/app/emailsend"
+	emailverifyapp "github.com/bitan-del/dakiya-mail/internal/app/emailverify"
+	"github.com/bitan-del/dakiya-mail/internal/app/feature"
+	"github.com/bitan-del/dakiya-mail/internal/app/fleet"
+	"github.com/bitan-del/dakiya-mail/internal/app/group"
+	"github.com/bitan-del/dakiya-mail/internal/app/guardrail"
+	idempotencyapp "github.com/bitan-del/dakiya-mail/internal/app/idempotency"
+	"github.com/bitan-del/dakiya-mail/internal/app/inboxagent"
+	"github.com/bitan-del/dakiya-mail/internal/app/instancecheck"
+	"github.com/bitan-del/dakiya-mail/internal/app/instanceconfig"
+	"github.com/bitan-del/dakiya-mail/internal/app/instancesettings"
+	"github.com/bitan-del/dakiya-mail/internal/app/integration"
+	"github.com/bitan-del/dakiya-mail/internal/app/leadsync"
+	"github.com/bitan-del/dakiya-mail/internal/app/mcp"
+	"github.com/bitan-del/dakiya-mail/internal/app/nativeactions"
+	"github.com/bitan-del/dakiya-mail/internal/app/notification"
+	"github.com/bitan-del/dakiya-mail/internal/app/oauth"
+	"github.com/bitan-del/dakiya-mail/internal/app/oidcauth"
+	"github.com/bitan-del/dakiya-mail/internal/app/organization"
+	orgrisk "github.com/bitan-del/dakiya-mail/internal/app/orgrisk"
+	"github.com/bitan-del/dakiya-mail/internal/app/orgtransfer"
+	"github.com/bitan-del/dakiya-mail/internal/app/passkey"
+	"github.com/bitan-del/dakiya-mail/internal/app/placement"
+	"github.com/bitan-del/dakiya-mail/internal/app/poollink"
+	"github.com/bitan-del/dakiya-mail/internal/app/postmaster"
+	"github.com/bitan-del/dakiya-mail/internal/app/preflight"
+	"github.com/bitan-del/dakiya-mail/internal/app/provisioning"
+	"github.com/bitan-del/dakiya-mail/internal/app/ratelimit"
+	"github.com/bitan-del/dakiya-mail/internal/app/referral"
+	"github.com/bitan-del/dakiya-mail/internal/app/releases"
+	"github.com/bitan-del/dakiya-mail/internal/app/replyclassify"
+	"github.com/bitan-del/dakiya-mail/internal/app/research"
+	"github.com/bitan-del/dakiya-mail/internal/app/salesblink"
+	"github.com/bitan-del/dakiya-mail/internal/app/sequence"
+	"github.com/bitan-del/dakiya-mail/internal/app/settings"
+	"github.com/bitan-del/dakiya-mail/internal/app/skills"
+	"github.com/bitan-del/dakiya-mail/internal/app/socialauth"
+	"github.com/bitan-del/dakiya-mail/internal/app/socket"
+	"github.com/bitan-del/dakiya-mail/internal/app/stripe"
+	"github.com/bitan-del/dakiya-mail/internal/app/subscription"
+	"github.com/bitan-del/dakiya-mail/internal/app/sysstatus"
+	"github.com/bitan-del/dakiya-mail/internal/app/team"
+	"github.com/bitan-del/dakiya-mail/internal/app/template"
+	"github.com/bitan-del/dakiya-mail/internal/app/token"
+	"github.com/bitan-del/dakiya-mail/internal/app/trial"
+	"github.com/bitan-del/dakiya-mail/internal/app/twofa"
+	"github.com/bitan-del/dakiya-mail/internal/app/tz"
+	"github.com/bitan-del/dakiya-mail/internal/app/unibox"
+	"github.com/bitan-del/dakiya-mail/internal/app/user"
+	warmupapp "github.com/bitan-del/dakiya-mail/internal/app/warmup"
+	"github.com/bitan-del/dakiya-mail/internal/app/warmupcontent"
+	"github.com/bitan-del/dakiya-mail/internal/app/webhook"
+	"github.com/bitan-del/dakiya-mail/internal/app/websitetracking"
+	"github.com/bitan-del/dakiya-mail/internal/app/worker"
+	"github.com/bitan-del/dakiya-mail/internal/app/worker_orchestrator"
+	"github.com/bitan-del/dakiya-mail/internal/config"
+	"github.com/bitan-del/dakiya-mail/internal/events"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/apns"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/cache"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/cloudprovider"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/cloudprovider/hetzner"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/codec"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/db"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/encryptedkeys"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/eventbus"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/gtasks"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/kafka"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/kms"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/pubsub"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/storage"
+	"github.com/bitan-del/dakiya-mail/internal/jobs"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/bitan-del/dakiya-mail/internal/notify"
+	"github.com/bitan-del/dakiya-mail/internal/observability"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/captcha"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/emailverify"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/encrypt"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/generation"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/geo"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/idtoken"
+	"github.com/bitan-del/dakiya-mail/internal/repository"
+	"github.com/bitan-del/dakiya-mail/internal/scheduler"
+	"github.com/bitan-del/dakiya-mail/internal/tasks"
+	"github.com/bitan-del/dakiya-mail/internal/tasks/proto"
+	"github.com/bitan-del/dakiya-mail/internal/tasksched"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func main() {
+	// Before anything else: refuse to run a networked deployment on the
+	// published default secrets. They are in this repository, so they protect
+	// nothing, and a forged token signed with the default AUTH_SECRET is
+	// accepted by the realtime service.
+	insecureDefaultsInUse := checkSecrets()
+
+	var addr string
+	var ginMode string
+	var websocketURI string
+	var allowedOrigins []string
+	var systemChecker *sysstatus.Checker
+
+	var tzService tz.TzService
+
+	var serviceAccount string
+	var keySet keyfunc.Keyfunc
+
+	var tokenService token.TokenService
+	var authService auth.AuthService
+	var externalAuthProviders models.ExternalAuthProviders
+	var userService user.UserService
+	var emailService email.EmailService
+	var poolLinkService poollink.Service
+	var cloudLinkService cloudlink.Service
+	var postmasterService postmaster.Service
+	var salesBlinkService salesblink.Service
+	var campaignService campaign.CampaignService
+	var analyticsService analytics.AnalyticsService
+	var rateLimitService ratelimit.RateLimitService
+	var sequenceService sequence.SequenceService
+	var contactService contact.ContactService
+	var websiteTrackingService websitetracking.Service
+	var socketService socket.SocketService
+	var uniboxService unibox.UniboxService
+	var cipherService cipher.CipherService
+	var passkeyService passkey.Service
+	var encryptedKeys encryptedkeys.Store
+	var storageBackendRepo repository.StorageBackendRepository
+	var cloudCredentialRepo repository.CloudCredentialRepository
+	var provisioningTemplateRepo repository.ProvisioningTemplateRepository
+	var provisioningJobRepo repository.ProvisioningJobRepository
+	var provisioningPolicyRepo repository.ProvisioningPolicyRepository
+	var tasksService tasks.TasksService
+	var advancedService advanced.Service
+	var warmupContentRepo repository.WarmupContentRepository
+	var warmupContentService warmupcontent.Service
+	var creditRepository repository.CreditRepository
+	var aiSettingsRepository repository.AISettingsRepository
+	var creditService credits.CreditService
+	var aiDraftRepo repository.AIDraftRepository
+	var writingGenerator generation.WritingGenerator
+	var aiProvider generation.Provider
+	var aiSearch generation.SearchClient
+	var aiEnvSettings generation.ProviderSettings
+	var aiToolRegistry *aitools.Registry
+	var aiAgentService aiagent.Service
+	var researchService research.Service
+	var skillsService skills.Service
+	var mcpService mcp.Service
+	var emailVerifyService emailverifyapp.Service
+	var placementRepository repository.PlacementRepository
+	var placementService placement.Service
+	var advisorRepository repository.AdvisorRepository
+	var advisorService advisor.Service
+	var preflightService preflight.Service
+
+	var folderService group.GroupService
+	var tagService group.GroupService
+	var categoryService group.GroupService
+	var crmService crm.CRMService
+	var teamService team.TeamService
+	var apiKeyService apikey.APIKeyService
+	var idempotencyService idempotencyapp.Service
+
+	// New services for trial, feature gates, and worker assignment
+	var trialService trial.TrialService
+	var featureGateService feature.FeatureGateService
+	var workerAssignmentService worker.WorkerAssignmentService
+	var subscriptionService subscription.SubscriptionService
+	var stripeService stripe.StripeService
+	var discountService discount.DiscountService
+	var referralService referral.Service
+	var organizationService organization.OrganizationService
+
+	// Email send & templates
+	var templateService template.TemplateService
+	var emailSendService emailsend.EmailSendService
+	var composeService compose.Service
+
+	// Admin
+	var adminService admin.AdminService
+	var adminOutreachService adminoutreach.Service
+	var dailyThrottleService dailythrottle.Service
+
+	// Worker orchestrator (SSH-driven admin worker lifecycle)
+	var workerOrchestrator *worker_orchestrator.Orchestrator
+	var workerRepoForHandler repository.WorkerRepository
+	var credentialsRepository repository.CredentialsRepository
+	var releasesService *releases.Service
+
+	// Notifications
+	var emailNotificationService notify.EmailNotificationService
+	// mailTransport is the same sender plus its metadata, kept so the auth
+	// config endpoint and admin diagnostics can report what mail is doing.
+	var mailTransport *notify.Transport
+	// Deployment auth facts resolved during boot and served by /auth/config.
+	var authPolicy *config.AuthPolicy
+	var passkeysUsable bool
+	var bootstrapService *bootstrap.Service
+	// oidcLogin is nil unless OIDC_ISSUER_URL is configured.
+	var oidcLogin *oidcauth.Service
+	// oidcDiscoveryErr keeps a boot-time discovery failure reportable, since it
+	// otherwise only ever appeared once in the log.
+	var oidcDiscoveryErr string
+	// authCache is the same Redis client the services use, hoisted so the
+	// middleware handler can reach it for the pre-login per-IP limiter.
+	var authCache *cache.Cache
+
+	// Warmup
+	var warmupService warmupapp.Service
+
+	// Per-mailbox human sending behaviour (rolled workday, daily/hourly
+	// ceilings, send spacing) — consumed by the schedulers and the dashboard.
+	var behaviorService behaviorapp.Service
+
+	// Danger zone (delayed deletions)
+	var dangerZoneService dangerzone.Service
+
+	// Workspace archives (export/import between instances)
+	var orgTransferService orgtransfer.Service
+
+	// Organization-wide audit trail
+	var auditService audit.AuditService
+
+	// Pub/Sub for realtime streaming
+	var streamingPublisher *pubsub.StreamingPublisher
+
+	// Surfaced into the handler for avatar uploads and other direct
+	// repository / object-storage needs. Declared up here so they
+	// survive the config block where they're initialized.
+	var s3ForHandler storage.Store
+	var emailMessageMapForHandler repository.EmailMessageMapRepository
+	var emailSyncStateRepository repository.EmailSyncStateRepository
+	var trackedLinkRepository repository.TrackedLinkRepository
+	// instanceSettings and the health registry are built after the handler
+	// dependencies, so the pool is hoisted out of the connection block.
+	var instanceSettings instancesettings.Service
+	var instanceChecksDB *pgxpool.Pool
+	var userRepoForHandler repository.UserRepository
+	var organizationRepoForHandler repository.OrganizationRepository
+	var orgRiskService orgrisk.Service
+	var warmupRoutingRepoForHandler repository.WarmupRoutingRepository
+	var webhookServiceForHandler webhook.Service
+	var integrationServiceForHandler integration.Service
+	var oauthService *oauth.Service
+	var notificationService notification.Service
+	var twofaService twofa.Service
+	var contactRepoForHandler repository.ContactRepository
+	var attachmentRepoForHandler repository.AttachmentRepository
+	var leadSyncServiceForHandler leadsync.Service
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	{
+
+		// Load config with env-first approach
+		cfg, err := config.NewConfig(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := observability.InitSentry(ctx, cfg, "backend"); err != nil {
+			log.Fatal(err)
+		}
+
+		// The Google service account + OIDC key set only authenticate GCP Cloud
+		// Tasks webhook callbacks. Under the default local dispatcher there is no
+		// webhook, so skip both — a self-host boot needs no GCP identity and no
+		// outbound call to Google's cert endpoint.
+		if config.TasksProvider() == "gcloud" {
+			serviceAccount, err = cfg.LoadGoogleServiceAccount(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+
+			keySet, err = keyfunc.NewDefaultCtx(ctx, []string{"https://www.googleapis.com/oauth2/v3/certs"})
+			if err != nil {
+				if cfg.Env == "dev" {
+					log.Printf("Warning: Failed to fetch Google OIDC keys: %v", err)
+				} else {
+					sentry.CaptureException(err)
+					log.Fatal(err)
+				}
+			}
+		}
+
+		apiCfg, err := cfg.LoadApiConfig(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// AWS SDK config, loaded only when an AWS-backed provider is selected
+		// (KMS_PROVIDER=aws or BLOB_PROVIDER=s3). A fully-local self-host
+		// (local KMS + filesystem blobs) skips this and needs no AWS_REGION or
+		// credentials at all.
+		var awscfg aws.Config
+		if config.AWSNeeded() {
+			awscfg, err = awsconf.LoadDefaultConfig(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+		}
+
+		var masterKey string = "alias/master-key"
+		if cfg.Env != "prod" {
+			masterKey += "-dev"
+		}
+
+		kms, err := kms.FromEnv(ctx, awscfg, masterKey)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		geoPath, err := cfg.LoadGeoDBPath(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// GeoIP is optional everywhere. It only labels session and audit records
+		// with a city, so a missing database is a cosmetic loss, not a reason to
+		// refuse to start: requiring a MaxMind licence to run APP_ENV=prod made
+		// self-hosting depend on an account nobody asked for.
+		var geoloc *geo.Client
+		geoloc, err = geo.New(geoPath)
+		if err != nil {
+			log.Printf("GeoIP database not found at %s; location lookups are disabled.", geoPath)
+			// geo.New returns a nil client on error; fall back to a usable,
+			// geo-disabled client so downstream callers never deref nil.
+			geoloc, _ = geo.New("")
+		}
+
+		s3, err := storage.NewFromEnv(ctx, awscfg, "main")
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+		s3ForHandler = s3
+
+		primaryDBEndpoint, err := cfg.LoadPrimaryDBEndpoint(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		primaryDB, err := db.New(ctx, primaryDBEndpoint)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// Run database migrations
+		log.Println("Running database migrations...")
+		if err := db.RunMigrations(primaryDBEndpoint); err != nil {
+			sentry.CaptureException(err)
+			log.Fatal("Failed to run migrations: ", err)
+		}
+		log.Println("Database migrations completed")
+
+		primaryRedis, err := cfg.LoadPrimaryRedisEndpoint(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		cache, err := cache.New(primaryRedis)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// Realtime event transport, chosen by PUBSUB_ENABLED — the SAME flag the
+		// Elixir realtime service reads — so the two sides can never split-brain
+		// (publisher on Pub/Sub while the subscriber listens on Redis = all events
+		// dropped). PUBSUB_ENABLED=true => Google Pub/Sub (prod); anything else =>
+		// Redis bridge (local dev / non-GCP). Exactly one transport is active, so
+		// events are never delivered twice.
+		if os.Getenv("PUBSUB_ENABLED") == "true" {
+			gcpProjectID := os.Getenv("GCP_PROJECT_ID")
+			if gcpProjectID == "" {
+				log.Fatal("PUBSUB_ENABLED=true requires GCP_PROJECT_ID")
+			}
+			pubsubClient, err := pubsub.NewClient(ctx, gcpProjectID)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal("Failed to initialize Pub/Sub client: ", err)
+			}
+			// Create the realtime topics + "<topic>-sub" subscriptions if missing,
+			// so the Elixir Broadway consumers always have a subscription to read.
+			if err := pubsubClient.EnsureRealtimeTopology(ctx); err != nil {
+				sentry.CaptureException(err)
+				log.Fatal("Failed to provision Pub/Sub topics/subscriptions: ", err)
+			}
+			streamingPublisher = pubsub.NewStreamingPublisher(pubsubClient)
+			log.Println("Realtime events published to Google Pub/Sub")
+		}
+		if streamingPublisher == nil {
+			streamingPublisher = pubsub.NewStreamingPublisher(pubsub.NewRedisBus(cache.Client, ""))
+			log.Println("Realtime events bridged over Redis (Pub/Sub disabled)")
+		}
+
+		emailCfg, err := cfg.LoadEmailConfig(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// Resolve the tracking host once at boot so links, the CNAME target
+		// customers are shown, and the health probe all agree. Missing is not
+		// fatal: mail still sends, it just goes out untracked.
+		if trackingHost := cfg.HydrateTrackingHost(ctx); trackingHost != "" {
+			log.Printf("Tracking host: %s (custom mailbox tracking domains CNAME to this)", trackingHost)
+		} else {
+			log.Printf("Warning: TRACKING_DOMAIN is not set, so campaign mail ships with no open pixel and unwrapped links, and no custom tracking domain can verify. Set it to the host serving the tracking service.")
+		}
+
+		mailTransport, err = notify.NewTransport(ctx, cfg, emailCfg.EmailName, emailCfg.EmailAddress)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+		emailNotificationService = mailTransport
+		// Dial the relay once at boot. A broken relay used to surface only as a
+		// 500 on the login screen, which is the one screen the operator needs
+		// when they cannot log in.
+		if perr := mailTransport.Preflight(ctx); perr != nil {
+			log.Printf("Warning: platform mail preflight FAILED (%s): %v", mailTransport.Description, perr)
+			log.Printf("Warning: login codes, password resets and invitations will not be delivered. Set MAIL_TRANSPORT=log to read them from these logs instead.")
+		} else {
+			log.Printf("Platform mail transport: %s", mailTransport.Description)
+		}
+		if !mailTransport.Delivers {
+			log.Printf("Warning: MAIL_TRANSPORT=log — every platform email, including login codes, is printed here and never delivered. Do not use this on a deployment other people can reach.")
+		}
+
+		authCfg, err := cfg.LoadAuthConfig(ctx)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// Apple Sign in is optional. Skip it entirely when unconfigured (a
+		// self-host without Apple creds); only warn — never fatal — when creds
+		// are present but init fails, so Apple simply stays unavailable.
+		var appleAuthClient apple.AppleAuth
+		if authCfg.AppleAppID != "" || authCfg.AppleKeySecret != "" {
+			appleAuthInstance, appleErr := apple.NewB64(
+				authCfg.AppleAppID,
+				authCfg.AppleTeamID,
+				authCfg.AppleKeyID,
+				authCfg.AppleKeySecret,
+			)
+			if appleErr != nil {
+				log.Printf("Warning: Apple auth initialization failed; Apple sign-in disabled: %v", appleErr)
+			} else {
+				appleAuthClient = appleAuthInstance
+			}
+		}
+
+		// Event bus + codec. Kafka bootstrap/SASL is only loaded for
+		// EVENTBUS_PROVIDER=kafka; the default NATS path needs none of it. The
+		// codec (codec.FromEnv) owns serialization end-to-end — Avro pulls
+		// SCHEMA_REGISTRY_URL from env, JSON needs nothing — so a NATS + JSON
+		// self-host requires no Kafka or Schema Registry config.
+		var kafkaBootstrapServers string
+		var kafkaSaslConfig *kafka.SASLConfig
+		if config.EventBusProvider() == "kafka" {
+			kafkaBootstrapServers, err = cfg.LoadKafkaBootstrapServers(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+			kafkaSaslConfig, err = cfg.LoadKafkaConfigSasl(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+		}
+
+		codecImpl, err := codec.FromEnv()
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		bus, err := eventbus.FromEnv(kafkaBootstrapServers, kafkaSaslConfig)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		// The bypass token must be set explicitly. It used to fall back to a
+		// hardcoded literal whenever APP_ENV was "dev", which is the shipped
+		// default in both compose and env.example, so any deployment that
+		// turned captcha on while leaving APP_ENV alone had a universal,
+		// publicly known bypass on login, registration and password reset.
+		turnstileBypassToken := ""
+		if cfg.Env == "dev" {
+			turnstileBypassToken = authCfg.TurnstileBypass
+			if turnstileBypassToken != "" && authCfg.TurnstileSecret != "" {
+				log.Printf("Warning: TURNSTILE_BYPASS_TOKEN is set alongside a real TURNSTILE_SECRET. Anyone who learns the token skips the captcha entirely.")
+			}
+		}
+
+		// Captcha is off when CAPTCHA_PROVIDER=none or no TURNSTILE_SECRET is set
+		// (a self-host that never configured Cloudflare), so auth endpoints work
+		// without a challenge instead of rejecting every request.
+		captcha := captcha.NewTurnstileFromConfig(captcha.TurnstileConfig{
+			Secret:      authCfg.TurnstileSecret,
+			BypassToken: turnstileBypassToken,
+			Disabled:    config.CaptchaProvider() == "none",
+		})
+
+		userRepostory := repository.NewUserRepostory(primaryDB, kms)
+		userRepoForHandler = userRepostory
+		authRepostory := repository.NewAuthRepostory(primaryDB)
+		tokenRepostory := repository.NewTokenRepostory(primaryDB)
+		webauthnRepository := repository.NewWebAuthnRepository(primaryDB)
+		credEncrypter, cerr := encrypt.FromEnv()
+		if cerr != nil {
+			sentry.CaptureException(cerr)
+			log.Fatal("Invalid CREDENTIALS_ENCRYPTION_KEY: ", cerr)
+		}
+		emailRepostory := repository.NewEmailRepostory(primaryDB, credEncrypter)
+		campaignRepostory := repository.NewCampaignRepostory(primaryDB)
+		sequenceRepostory := repository.NewSequenceRepostory(primaryDB)
+		contactRepostory := repository.NewContactRepostory(primaryDB)
+		attachmentRepoForHandler = repository.NewAttachmentRepository(primaryDB)
+		uniboxRepository := repository.NewUniboxRepository(primaryDB)
+		encryptedKeys, err = encryptedkeys.FromEnv(
+			encryptedkeys.Deps{DB: primaryDB},
+			"postgres",
+		)
+		emailMessageMapForHandler = repository.NewEmailMessageMapRepository(primaryDB)
+		trackedLinkRepository = repository.NewTrackedLinkRepository(primaryDB.Pool)
+		instanceChecksDB = primaryDB.Pool
+		instanceSettings = instancesettings.NewService(instancesettings.NewStore(primaryDB.Pool, credEncrypter))
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Fatal(err)
+		}
+
+		folderRepostory := repository.NewGroupRepostory(primaryDB, models.Folders)
+		tagRepostory := repository.NewGroupRepostory(primaryDB, models.Tags)
+		categoryRepostory := repository.NewGroupRepostory(primaryDB, models.Categories)
+
+		// New repositories for subscription & worker management
+		subscriptionRepository := repository.NewSubscriptionRepository(primaryDB.Pool)
+		planRepository := repository.NewPlanRepository(primaryDB.Pool)
+
+		// Admin + discount management. Constructed before the Stripe service:
+		// the Stripe service depends on the discount service (to validate codes
+		// and record redemptions at checkout), and the discount service audits
+		// management actions through the admin service.
+		adminRepository := repository.NewAdminRepository(primaryDB.Pool)
+		campaignLogRepository := repository.NewCampaignLogRepository(primaryDB)
+		adminService = admin.NewService(adminRepository, campaignLogRepository)
+		discountCodeRepository := repository.NewDiscountCodeRepository(primaryDB.Pool)
+		discountRedemptionRepository := repository.NewDiscountRedemptionRepository(primaryDB.Pool)
+		discountService = discount.NewService(discountCodeRepository, discountRedemptionRepository, planRepository, adminService)
+		workerRepository := repository.NewWorkerRepository(primaryDB.Pool)
+		organizationRepository := repository.NewOrganizationRepository(primaryDB.Pool)
+		organizationRepoForHandler = organizationRepository
+		taskRepository := repository.NewTaskRepository(primaryDB.Pool)
+		apiKeyRepository := repository.NewAPIKeyRepository(primaryDB)
+		idempotencyService = idempotencyapp.NewService(primaryDB.Pool)
+		crmRepository := repository.NewCRMRepository(primaryDB.Pool)
+		advancedRepository := repository.NewAdvancedOutreachRepository(primaryDB.Pool)
+		campaignAudienceRepository := repository.NewCampaignAudienceRepository(primaryDB)
+		orgRiskRepository := repository.NewOrgRiskRepository(primaryDB)
+		orgRiskService = orgrisk.NewService(orgRiskRepository)
+		templateRepository := repository.NewTemplateRepository(primaryDB.Pool)
+		warmupRepository := repository.NewWarmupRepository(primaryDB.Pool)
+		warmupRoutingRepository := repository.NewWarmupRoutingRepository(primaryDB.Pool)
+		warmupRoutingRepoForHandler = warmupRoutingRepository
+
+		warmupContentRepo = repository.NewWarmupContentRepository(primaryDB.Pool)
+		// The live warmup writer seals what it sends with the instance key; without one it stays off.
+		var warmupThreadRepo repository.WarmupThreadRepository
+		if credEncrypter != nil {
+			warmupThreadRepo = repository.NewWarmupThreadRepository(primaryDB.Pool, credEncrypter)
+		}
+
+		// AI provider layer. AI_PROVIDER picks a preset (openai/openrouter/groq/
+		// ollama/anthropic/custom) that fills in the base URL + free default; the
+		// AI_* vars supply the key/model/endpoint. Pluggable web search
+		// (Serper/SearXNG) backs search_web.
+		// Saved Instance settings win over the AI_* env for every AI feature; read once at boot, so a change needs a restart.
+		aiEnvSettings = generation.EnvSettings(ctx, cfg)
+		savedAI := instanceSettings.AI(ctx)
+		aiResolved := aiEnvSettings.WithSaved(savedAI.Provider, savedAI.APIKey, savedAI.BaseURL, savedAI.Model)
+		aiProviderName := aiResolved.Provider
+		aiKey := aiResolved.APIKey
+		aiSearch = generation.NewSearchClient(
+			cfg.GetStringOptional(ctx, "SEARCH_PROVIDER", "search/provider", ""),
+			cfg.GetStringOptional(ctx, "SEARCH_API_URL", "search/api_url", ""),
+			cfg.GetSecretOptional(ctx, "SEARCH_API_KEY", "search/api_key", ""),
+		)
+		aiResolved.Search = aiSearch
+		if cfgAI, rerr := generation.Resolve(aiResolved); rerr != nil {
+			log.Printf("AI provider misconfigured, AI features disabled: %v", rerr)
+		} else if provider, perr := generation.NewProvider(cfgAI); perr == nil {
+			aiProvider = provider
+		}
+
+		// Warmup content bank + offline AI generator. The generator rides OpenAI's
+		// Batch API specifically, so it only runs when the selected provider is
+		// OpenAI itself; otherwise the live send path keeps using the static
+		// library and admin generation returns "not configured".
+		var generationClient *generation.GenerationClient
+		if (aiProviderName == "" || aiProviderName == "openai") && aiKey != "" {
+			generationClient = generation.NewClient(aiKey)
+		}
+		warmupContentService = warmupcontent.NewService(warmupContentRepo, generationClient)
+
+		// Writing assistant generator: the OpenAI-compatible provider implements
+		// WritingGenerator directly; the Anthropic connector delegates writing to
+		// the dedicated Anthropic writing client. Neither configured => nil => 503.
+		if wg, ok := aiProvider.(generation.WritingGenerator); ok {
+			writingGenerator = wg
+		} else if aiProviderName == "anthropic" && aiKey != "" {
+			writingGenerator = generation.NewAnthropicClient(aiKey)
+		}
+		creditRepository = repository.NewCreditRepository(primaryDB)
+		aiSettingsRepository = repository.NewAISettingsRepository(primaryDB)
+		creditService = credits.NewService(creditRepository, aiSettingsRepository, cache)
+		webhookRepository := repository.NewWebhookRepository(primaryDB.Pool)
+		webhookService := webhook.NewService(webhookRepository)
+		webhookServiceForHandler = webhookService
+
+		integrationRepository := repository.NewIntegrationRepository(primaryDB.Pool)
+		// OAuth 2.1 authorization server (third-party app registration + token flow).
+		oauthService = oauth.NewService(repository.NewOAuthRepository(primaryDB.Pool), cache)
+		// Enforce the per-app webhook-domain allowlist on app-scoped endpoints (at
+		// write time, and re-checked at delivery time via the worker below).
+		webhookService.WireAppDomainResolver(oauthService.AllowedWebhookDomains)
+		// Materialize per-org webhook endpoints when an app is authorized/revoked or
+		// its webhook config changes (the app-level subscription model).
+		oauthService.WireWebhookSync(webhookRepository)
+		// integrationServiceForHandler is constructed after cipherService below —
+		// OAuth/secret sealing depends on the envelope-encryption service.
+		contactRepoForHandler = contactRepostory
+
+		// Drain the webhook delivery queue in-process. Multiple replicas are
+		// safe because ClaimDueDeliveries uses SELECT … FOR UPDATE SKIP LOCKED.
+		// Cache enables the per-endpoint delivery rate limit; AppDomains re-checks
+		// app-scoped endpoint hosts at delivery time.
+		webhookWorker := webhook.NewDeliveryWorker(webhookRepository, webhook.DeliveryWorkerOptions{
+			Cache:      cache,
+			AppDomains: oauthService.AllowedWebhookDomains,
+		})
+		go webhookWorker.Run(ctx)
+		campaignProgressRepository := repository.NewCampaignProgressRepository(primaryDB.Pool)
+		warmupService = warmupapp.NewService(warmupRepository)
+		// Fan out warmup health transitions to customer webhooks.
+		warmupService.WireWebhooks(webhookService, emailRepostory)
+
+		tzService = tz.NewService()
+
+		// Initialize new services for trial, feature gates, and worker assignment.
+		// The trial service seeds the free plan's monthly AI-credit allowance at
+		// trial start (planRepo + creditService, both already constructed above).
+		trialService = trial.NewService(subscriptionRepository, userRepostory, planRepository, creditService)
+		featureGateService = feature.NewService(subscriptionRepository, planRepository)
+		workerAssignmentService = worker.NewAssignmentService(workerRepository, subscriptionRepository, planRepository)
+		subscriptionService = subscription.NewService(subscriptionRepository, planRepository)
+		// dailyThrottleService needs the cache that's constructed
+		// earlier in main; instantiate up here so org create can use it.
+		if dailyThrottleService == nil {
+			dailyThrottleService = dailythrottle.NewService(cache)
+		}
+		organizationService = organization.NewService(organizationRepository, subscriptionRepository, userRepostory, dailyThrottleService)
+
+		// Plan-based webhook/integration fan-out throttle. The cap scales with
+		// the org's effective mailbox allowance (see WebhookDispatchLimit) so a
+		// campaign "notify" action can't flood a customer's endpoints. Wired here
+		// now that organizationService exists; the resolved cap is cached so this
+		// resolver is not hit on every dispatched event.
+		webhookServiceForHandler.WireThrottle(cache, organizationService.WebhookDispatchLimit)
+
+		// Billing. Default (BILLING_PROVIDER=none, the self-host default): a no-op
+		// Stripe service so the backend boots with no Stripe keys and every
+		// feature is unlocked by the feature gate. BILLING_PROVIDER=stripe wires
+		// the real Stripe integration (keys required).
+		if config.BillingProvider() == "stripe" {
+			stripeCfg, err := cfg.LoadStripeConfig(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+			stripeService = stripe.NewService(stripeCfg, subscriptionRepository, planRepository, workerAssignmentService, discountService)
+		} else {
+			stripeService = stripe.NewDisabledService()
+		}
+
+		tokenService = token.NewService(primaryDB, tokenRepostory, cache, geoloc, authCfg.AuthSecret)
+		userService = user.NewService(userRepostory, cache)
+
+		// Organization-wide audit trail (who did what, when, from where).
+		auditRepository := repository.NewAuditRepository(primaryDB.Pool)
+		auditService = audit.NewService(auditRepository, streamingPublisher)
+		// Transitions ride the audit spine, so a posture change reaches every
+		// teammate's dashboard without a bespoke emit site. Wired here rather
+		// than at construction because the audit service does not exist yet.
+		if aware, ok := orgRiskService.(orgrisk.AuditAware); ok && orgRiskService != nil {
+			aware.WireAudit(auditService)
+		}
+		// Bridge audited mutations to typed customer webhooks (campaign/contact/
+		// template/CRM/team/role/settings/subscription .created/.updated/.deleted).
+		auditService.WireWebhookDispatcher(webhookService)
+
+		// Wire AI-credit grants into the Stripe webhook flow: monthly allowance
+		// reset on invoice.paid and top-up fulfillment on checkout.session.completed
+		// (mode=payment). The audit logger fires AUDIT_CREATED so teammates' credit
+		// views refresh live via the spine.
+		stripeService.WireCredits(creditService, auditService)
+
+		// Credit watch: after every fresh debit it fires the low-balance alert
+		// (once per day) and, when enabled, buys the configured pack off-session
+		// (auto top-up). Runs detached so charges are never slowed.
+		creditWatch := creditwatch.New(aiSettingsRepository, creditRepository, cache, streamingPublisher, stripeService)
+		creditService.SetMonitor(creditWatch.OnBalanceChanged)
+
+		authService = auth.NewService(
+			authRepostory,
+			cache,
+			captcha,
+			tokenService,
+			emailNotificationService,
+			trialService,
+			organizationService,
+			userRepostory,
+			userService,
+		)
+		// Signup findings are filed on the new workspace's posture. A signup
+		// signal alone can only reach `watch`, which changes nothing.
+		if aware, ok := authService.(auth.OrgRiskAware); ok && orgRiskService != nil {
+			aware.WireOrgRisk(orgRiskService)
+		}
+		// Sign-in anomaly detection. Without a geo database every sign-in is
+		// simply unjudged, which is the safe direction.
+		if aware, ok := authService.(auth.LoginRiskAware); ok {
+			aware.WireLoginRisk(repository.NewLoginHistoryRepository(primaryDB), geoloc)
+		}
+		// TOTP 2FA: the secret is sealed with a server-wide key (the per-user DEK
+		// is unreachable at login time). Wire the challenger into auth so the login
+		// gate can issue a pending challenge.
+		twofaService = twofa.NewService(repository.NewTOTPRepository(primaryDB.Pool), userRepostory, tokenService, cache, twofa.DeriveKey(authCfg.TwoFASecret))
+		authService.WireTwoFA(twofaService)
+
+		// Deployment-level auth policy: whether an emailed code gates a login,
+		// whether signups are open, whether verification is required. Resolved
+		// against the mail transport, because a code nobody can receive cannot
+		// be a login requirement.
+		authPolicy = config.LoadAuthPolicy(mailTransport != nil && mailTransport.Delivers)
+		authService.WireDeployment(authPolicy, mailTransport != nil && mailTransport.Delivers)
+		// Invitations answer to the same policy as the signup form.
+		if organizationService != nil {
+			organizationService.WireAuthPolicy(authPolicy)
+		}
+		// The database-backed settings: invitation expiry, the invite-link
+		// switch, and whether an invitee may create their own account.
+		if instanceSettings != nil {
+			authService.WireInstanceSettings(instanceSettings)
+			if organizationService != nil {
+				organizationService.WireInstanceSettings(instanceSettings)
+			}
+		}
+		log.Printf("Auth policy: login_code=%s registration=%s (DISABLE_REGISTRATION) email_verification=%t sso_auto_provision=%t",
+			authPolicy.LoginCode, authPolicy.Registration, authPolicy.RequireEmailVerification, authPolicy.SSOAutoProvision)
+
+		// Native-app social sign-in. Declared as the interface type so an
+		// unconfigured provider stays a true nil (no typed-nil pitfall) and
+		// the service reports it as unavailable.
+		var appleIDTokens, googleIDTokens auth.IDTokenVerifier
+		if authCfg.AppleIOSBundleID != "" {
+			appleIDTokens = idtoken.AppleVerifier(authCfg.AppleIOSBundleID)
+		}
+		if authCfg.GoogleIOSClientID != "" {
+			googleIDTokens = idtoken.GoogleVerifier(authCfg.GoogleIOSClientID)
+		}
+		authService.WireExternalIDTokens(appleIDTokens, googleIDTokens)
+
+		// Federated identities keyed on (issuer, subject). Without this,
+		// external sign-in resolves accounts by email alone, which is only safe
+		// for issuers that control their own email namespace.
+		authService.WireIdentities(repository.NewIdentityRepository(primaryDB.Pool))
+
+		// Generic OIDC. Discovery runs at boot: an unreachable issuer is a
+		// configuration error worth surfacing now rather than as a login button
+		// that always fails.
+		if issuer := os.Getenv("OIDC_ISSUER_URL"); issuer != "" {
+			oidcSvc, oerr := oidcauth.New(ctx, oidcauth.Config{
+				IssuerURL:      issuer,
+				ClientID:       os.Getenv("OIDC_CLIENT_ID"),
+				ClientSecret:   os.Getenv("OIDC_CLIENT_SECRET"),
+				RedirectURL:    oidcRedirectURL(),
+				Scopes:         splitList(os.Getenv("OIDC_SCOPES")),
+				AllowedDomains: splitList(os.Getenv("OIDC_ALLOWED_DOMAINS")),
+				DefaultOrgID:   os.Getenv("OIDC_DEFAULT_ORG"),
+				ProviderName:   os.Getenv("OIDC_PROVIDER_NAME"),
+			})
+			if oerr != nil {
+				oidcDiscoveryErr = oerr.Error()
+				log.Printf("Warning: OIDC disabled: %v", oerr)
+			} else {
+				oidcLogin = oidcSvc
+				authService.WireFederatedProvider(models.IdentityProviderOIDC, oidcSvc)
+				log.Printf("OIDC login enabled (issuer %s, redirect %s)", oidcSvc.Issuer(), oidcRedirectURL())
+			}
+		}
+
+		// Sign in with Google in the browser. The redirect URI is logged
+		// because it is the value that has to be registered at the provider.
+		if authCfg.GoogleClientID != "" || authCfg.GoogleClientSecret != "" {
+			redirect := ssoRedirectURL(authCfg.GoogleRedirectURI, "google")
+			googleLogin, gerr := socialauth.NewGoogle(authCfg.GoogleClientID, authCfg.GoogleClientSecret, redirect)
+			if gerr != nil {
+				log.Printf("Warning: Sign in with Google disabled: %v", gerr)
+			} else {
+				authService.WireFederatedProvider(models.IdentityProviderGoogle, googleLogin)
+				warnSSORedirectOrigin("Google", redirect)
+				log.Printf("Sign in with Google enabled (redirect %s)", googleLogin.RedirectURL())
+			}
+		}
+
+		// Sign in with Apple in the browser, on the same credentials the
+		// native path uses. APPLE_APP_ID is the Services ID here.
+		if appleAuthClient != nil {
+			redirect := ssoRedirectURL(authCfg.AppleRedirectURI, "apple")
+			appleLogin, aerr := socialauth.NewApple(appleAuthClient, authCfg.AppleAppID, redirect)
+			if aerr != nil {
+				log.Printf("Warning: Sign in with Apple disabled: %v", aerr)
+			} else {
+				authService.WireFederatedProvider(models.IdentityProviderApple, appleLogin)
+				warnSSORedirectOrigin("Apple", redirect)
+				log.Printf("Sign in with Apple enabled (redirect %s)", appleLogin.RedirectURL())
+			}
+		}
+		externalAuthProviders = models.ExternalAuthProviders{
+			AppleBundleID:     authCfg.AppleIOSBundleID,
+			GoogleIOSClientID: authCfg.GoogleIOSClientID,
+		}
+
+		// Referral program. Wired bidirectionally with Stripe (webhooks reward and
+		// claw back; the earnings ledger nets onto the referrer's customer balance)
+		// and into auth so a signup carrying ?ref= is attributed to its referrer.
+		referralRepository := repository.NewReferralRepository(primaryDB.Pool)
+		referralService = referral.NewService(
+			referralRepository,
+			discountCodeRepository,
+			planRepository,
+			subscriptionRepository,
+			userRepostory,
+			auditService,
+			os.Getenv("APP_URL"),
+		)
+		stripeService.WireReferral(referralService)
+		referralService.WireBalancer(stripeService)
+		authService.WireReferral(referralService)
+		var passkeyErr error
+		passkeyService, passkeyErr = passkey.New(passkey.Deps{
+			Repo:          webauthnRepository,
+			UserRepo:      userRepostory,
+			TokenService:  tokenService,
+			Cache:         cache,
+			RPID:          authCfg.WebAuthnRPID,
+			RPDisplayName: authCfg.WebAuthnRPDisplayName,
+			RPOrigins:     authCfg.WebAuthnRPOrigins,
+		})
+		if passkeyErr != nil {
+			sentry.CaptureException(passkeyErr)
+			log.Fatal(passkeyErr)
+		}
+		passkeysUsable = passkeysUsableFor(os.Getenv("APP_URL"))
+		authCache = cache
+		warnDeploymentURLs(ctx, os.Getenv("APP_URL"))
+
+		// First-owner bootstrap. A no-op once any user exists, so it runs on
+		// every boot and only ever does something on a fresh install.
+		bootstrapService = bootstrap.NewService(
+			userRepostory,
+			userService,
+			organizationService,
+			trialService,
+			repository.NewAdminRepository(primaryDB.Pool),
+			cache,
+		)
+		if berr := bootstrapService.Run(ctx); berr != nil {
+			sentry.CaptureException(berr)
+			log.Printf("Warning: bootstrap failed: %v", berr)
+		}
+
+		cipherService = cipher.NewService(kms, cache, encryptedKeys)
+
+		// Third-party integrations: OAuth connect flows + encrypted token
+		// storage (sealed with the connecting user's DEK) + event-driven actions.
+		integrationServiceForHandler = integration.NewService(integrationRepository, cipherService, integration.NewOAuthManager())
+		// Fan platform events (replies, bounces, warmup health, booked meetings)
+		// out to integration actions alongside customer webhooks.
+		webhookService.WireDispatchSink(integrationServiceForHandler.DispatchAny)
+
+		// Reflect the active infrastructure backends into storage_backends so
+		// the admin UI can display what's running. Read-only entries — they
+		// were chosen via env vars and changing them at runtime would orphan
+		// existing ciphertext / DEKs.
+		storageBackendRepo = repository.NewStorageBackendRepository(primaryDB)
+		cloudCredentialRepo = repository.NewCloudCredentialRepository(primaryDB)
+		provisioningTemplateRepo = repository.NewProvisioningTemplateRepository(primaryDB)
+		provisioningJobRepo = repository.NewProvisioningJobRepository(primaryDB)
+		provisioningPolicyRepo = repository.NewProvisioningPolicyRepository(primaryDB)
+		settingsRegistrar := settings.NewRegistrar(storageBackendRepo)
+		if err := settingsRegistrar.RegisterAll(ctx, []settings.Backend{
+			{Kind: "kms", Provider: kms.Name(), Display: kms.Name(), ReadOnly: true},
+			{Kind: "encrypted_keys", Provider: encryptedKeys.Name(), Display: encryptedKeys.Name(), ReadOnly: true},
+			{Kind: "blob", Provider: s3.Name(), Display: s3.Name(), ReadOnly: true},
+			{Kind: "eventbus", Provider: "kafka", Display: "kafka", ReadOnly: true},
+		}); err != nil {
+			sentry.CaptureException(err)
+			log.Printf("storage_backends registrar: %v", err)
+		}
+
+		// Autonomous fleet management background loops. Each runs on its own
+		// interval and writes every action to decision_log. Cancel them via
+		// the root context on shutdown.
+		decisionLogRepo := repository.NewDecisionLogRepository(primaryDB)
+
+		// Refresh worker_capacity_view every minute so the assignment loop +
+		// rebalance + scale + quarantine evaluators see fresh rolling
+		// metrics. The materialized view is what aggregates the 1h windows
+		// across all workers.
+		go func() {
+			tick := time.NewTicker(time.Minute)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					if err := workerRepository.RefreshWorkerCapacityView(ctx); err != nil {
+						log.Printf("worker_capacity_view refresh: %v", err)
+					}
+				}
+			}
+		}()
+
+		go (&fleet.Rebalancer{
+			WorkerRepo: workerRepository,
+			Decisions:  decisionLogRepo,
+		}).Run(ctx)
+		go (&fleet.Scaler{
+			WorkerRepo:   workerRepository,
+			PolicyRepo:   provisioningPolicyRepo,
+			TemplateRepo: provisioningTemplateRepo,
+			JobRepo:      provisioningJobRepo,
+			Decisions:    decisionLogRepo,
+		}).Run(ctx)
+		go (&fleet.QuarantineEvaluator{
+			WorkerRepo: workerRepository,
+			Decisions:  decisionLogRepo,
+		}).Run(ctx)
+
+		// Provisioning runner. Drives provisioning_jobs rows to completion —
+		// without it a job created from the admin UI sits in "pending" forever.
+		//
+		// Real Hetzner calls only happen when PROVISIONING_DRY_RUN=false. A real
+		// SSH installer adapter (over worker_orchestrator) is not wired yet, so
+		// until it is we force dry-run: real-mode would otherwise create servers
+		// it could not provision, leaving orphaned, billed machines. Dry-run runs
+		// the full state machine against a simulated provider so the admin flow
+		// works end-to-end in dev without spending money.
+		if getenvDefault("PROVISIONING_RUNNER_ENABLED", "true") == "true" {
+			provDryRun := getenvDefault("PROVISIONING_DRY_RUN", "true") != "false"
+			if !provDryRun {
+				log.Printf("PROVISIONING_DRY_RUN=false but no real installer is wired; forcing dry-run to avoid orphaned servers")
+				provDryRun = true
+			}
+			credRepoForResolver := cloudCredentialRepo
+			provService := &provisioning.Service{
+				Jobs:      provisioningJobRepo,
+				Installer: &provisioning.StubInstaller{},
+				ProviderResolver: func(rctx context.Context, job *repository.ProvisioningJob) (cloudprovider.Provider, error) {
+					if provDryRun {
+						return provisioning.DryRunProvider{}, nil
+					}
+					if credRepoForResolver == nil {
+						return nil, fmt.Errorf("no cloud credential repo configured")
+					}
+					cred, err := credRepoForResolver.GetByProvider(rctx, job.Provider)
+					if err != nil {
+						return nil, err
+					}
+					if cred == nil {
+						return nil, fmt.Errorf("no cloud credential for provider %q", job.Provider)
+					}
+					switch cred.Provider {
+					case "hetzner":
+						return hetzner.New(cred.EncryptedToken)
+					default:
+						return nil, fmt.Errorf("unsupported provider %q", cred.Provider)
+					}
+				},
+			}
+			go (&provisioning.Runner{
+				Jobs:   provisioningJobRepo,
+				Svc:    provService,
+				DryRun: provDryRun,
+			}).Run(ctx)
+		}
+
+		// Worker orchestrator. The env config below is the FALLBACK that gets
+		// written into /etc/dakiya/worker.env when a worker has no profile
+		// assigned. Production workers should reference a worker_profile row;
+		// dev/sim can rely on the fallback so docker-compose still works.
+		workerRepoForHandler = workerRepository
+		credentialsRepository = repository.NewCredentialsRepository(primaryDB.Pool)
+		workerOrchestrator = worker_orchestrator.New(
+			workerRepository,
+			credentialsRepository,
+			cipherService,
+			worker_orchestrator.WorkerEnvConfig{
+				AppEnv:               os.Getenv("APP_ENV"),
+				WorkerImage:          getenvDefault("WORKER_IMAGE", "ghcr.io/dakiya/worker:latest"),
+				KafkaBootstrap:       os.Getenv("KAFKA_BOOTSTRAP_SERVERS"),
+				KafkaSASLUsername:    os.Getenv("KAFKA_SASL_USERNAME"),
+				KafkaSASLPassword:    os.Getenv("KAFKA_SASL_PASSWORD"),
+				SchemaRegistryURL:    os.Getenv("SCHEMA_REGISTRY_URL"),
+				SchemaRegistryKey:    os.Getenv("SCHEMA_REGISTRY_KEY"),
+				SchemaRegistrySecret: os.Getenv("SCHEMA_REGISTRY_SECRET"),
+				RedisURL:             os.Getenv("REDIS"),
+				AWSRegion:            os.Getenv("AWS_REGION"),
+				AWSAccessKeyID:       os.Getenv("WORKER_AWS_ACCESS_KEY_ID"),
+				AWSSecretAccessKey:   os.Getenv("WORKER_AWS_SECRET_ACCESS_KEY"),
+				// A remote worker reaches the internal API over the network, so
+				// fall back to the public API URL. ENCRYPTED_KEYS_BACKEND_URL is
+				// typically only set on workers themselves (compose points it at
+				// the in-network hostname), leaving it empty here and shipping a
+				// config the worker cannot use.
+				EncryptedKeysBackendURL:  getenvDefault("ENCRYPTED_KEYS_BACKEND_URL", os.Getenv("API_PUBLIC_URL")),
+				EncryptedKeysWorkerToken: os.Getenv("INTERNAL_API_TOKEN"),
+				KMSProvider:              getenvDefault("KMS_PROVIDER", "local"),
+				KMSLocalMasterKey:        os.Getenv("KMS_LOCAL_MASTER_KEY"),
+				KMSAWSKeyID:              os.Getenv("KMS_AWS_KEY_ID"),
+				CredentialsEncryptionKey: os.Getenv("CREDENTIALS_ENCRYPTION_KEY"),
+				BlobProvider:             getenvDefault("BLOB_PROVIDER", "filesystem"),
+				BlobBucket:               os.Getenv("BLOB_BUCKET"),
+				BlobFSRoot:               os.Getenv("BLOB_FS_ROOT"),
+				EventBusProvider:         os.Getenv("EVENTBUS_PROVIDER"),
+				NATSURL:                  os.Getenv("NATS_URL"),
+				CodecProvider:            os.Getenv("CODEC_PROVIDER"),
+				BoxGoogleClientID:        os.Getenv("BOX_GOOGLE_CLIENT_ID"),
+				BoxGoogleClientSecret:    os.Getenv("BOX_GOOGLE_CLIENT_SECRET"),
+				BoxOutlookClientID:       os.Getenv("BOX_OUTLOOK_CLIENT_ID"),
+				BoxOutlookClientSecret:   os.Getenv("BOX_OUTLOOK_CLIENT_SECRET"),
+			},
+			getenvDefault("WORKER_INSTALLER_PATH", "/app/scripts/install-worker.sh"),
+		)
+
+		// Releases service. Off by default for self-host (no vendor image
+		// auto-roll, no GitHub polling on boot); set RELEASES_ENABLED=true to
+		// point it at your own repo/registry.
+		releasesService = releases.New(
+			releases.Config{
+				Enabled:         getenvDefault("RELEASES_ENABLED", "false") == "true",
+				GithubRepo:      getenvDefault("RELEASES_GITHUB_REPO", "dakiya/dakiya"),
+				WorkerImageRepo: getenvDefault("RELEASES_WORKER_IMAGE_REPO", "ghcr.io/dakiya/dakiya/worker"),
+				WebhookSecret:   os.Getenv("RELEASES_WEBHOOK_SECRET"),
+				GithubToken:     os.Getenv("RELEASES_GITHUB_TOKEN"),
+			},
+			credentialsRepository,
+			workerRepository,
+			workerOrchestrator,
+		)
+		releasesService.RunBootCheck(ctx)
+
+		eventsPublisher := events.NewPublisher(bus, s3, codecImpl, cipherService)
+
+		// apiCfg.Hostname is the bind address, not a reachable base. Building
+		// the mailbox-connect redirect_uri from it sends the provider
+		// "0.0.0.0:8080/addresses/google/callback".
+		oauth2Cfg := config.LoadOauth2(oauthPublicBaseURL(apiCfg.Hostname))
+		emailService = email.NewServiceWithWorker(
+			emailRepostory,
+			cipherService,
+			featureGateService,
+			warmupService,
+			eventsPublisher,
+			cache,
+			&oauth2Cfg.InboxAuthorization,
+			workerAssignmentService,
+			streamingPublisher,
+		)
+		// Fan out email-account lifecycle events to customer webhooks.
+		emailService.WireWebhooks(webhookService)
+		// Same wire-after-construct pattern for the daily throttle —
+		// only the prod backend has a real cache; jobs / tests build
+		// emailService without one.
+		emailService.WireThrottle(dailyThrottleService)
+		// Seed Graph delta cursors when the reconciler reloads mailboxes.
+		emailService.WireGraphDelta(repository.NewEmailGraphDeltaRepository(primaryDB))
+		// The Gmail equivalent: without it a reloaded mailbox re-bootstraps its
+		// history cursor and skips everything that arrived since the last sync.
+		emailService.WireEmailHistoryID(repository.NewEmailHistoryIDRepository(primaryDB))
+		// Sync fair use: the policy a mailbox syncs under, its resumable
+		// backfill state, and the saved IMAP folder cursors.
+		emailSyncStateRepository = repository.NewEmailSyncStateRepository(primaryDB)
+		emailService.WireSyncState(emailSyncStateRepository)
+		emailService.WireMailboxes(repository.NewMailboxRepository(primaryDB))
+		if instanceSettings != nil {
+			emailService.WireSyncBudget(instanceSettings)
+		}
+		// A restricted organization's mailboxes join the free pool on connect.
+		if aware, ok := emailService.(email.OrgRiskAware); ok {
+			aware.WireOrgRisk(orgRiskRepository)
+		}
+		// The owner's hold shares the lifecycle the rebalancer moves.
+		if aware, ok := emailService.(email.LifecycleAware); ok {
+			aware.WireLifecycle(repository.NewSendLifecycleRepository(primaryDB))
+		}
+		analyticsRepository := repository.NewAnalyticsRepository(primaryDB)
+		emailAccountErrorRepository := repository.NewEmailAccountErrorRepository(primaryDB)
+		analyticsService = analytics.NewService(analyticsRepository, emailRepostory, campaignRepostory, emailAccountErrorRepository, warmupRepository)
+		// A mailbox out of cold rotation says so in its drawer; an active one
+		// needs no notice.
+		if aware, ok := analyticsService.(analytics.LifecycleAware); ok {
+			aware.WireLifecycle(repository.NewSendLifecycleRepository(primaryDB))
+		}
+
+		// Self-hosted warmup pool link, both roles. The cloud side hands out
+		// codes and runs enrolled mailboxes as warmup-only accounts; the
+		// self-hosted side keeps the link and mirrors the cloud's state.
+		poolLinkRepository := repository.NewPoolLinkRepository(primaryDB.Pool)
+		poolLinkService = poollink.NewService(poolLinkRepository, emailRepostory, emailService, analyticsService, warmupRepository, featureGateService, organizationService, planRepository)
+		emailService.WirePoolLink(poolLinkRepository)
+		if g, ok := featureGateService.(interface{ WirePoolLink(feature.PoolLinkReader) }); ok {
+			g.WirePoolLink(poolLinkService)
+		}
+		if w, ok := poolLinkService.(poollink.CacheWirer); ok {
+			w.WireCache(cache)
+		}
+		cloudLinkRepository := repository.NewCloudLinkRepository(primaryDB.Pool, credEncrypter)
+		emailService.WireCloudLink(cloudLinkRepository)
+		cloudLinkService = cloudlink.NewService(cloudLinkRepository, emailRepostory, emailService)
+
+		// SalesBlink warmup. Same shape as cloud link: the API key is sealed
+		// with the mailbox credential key, so it needs the same encrypter.
+		salesBlinkService = salesblink.NewService(
+			repository.NewSalesBlinkRepository(primaryDB.Pool, credEncrypter), emailRepostory)
+
+		rateLimitRepository := repository.NewRateLimitRepository(primaryDB)
+		rateLimitService = ratelimit.NewService(cache, rateLimitRepository)
+		sequenceService = sequence.NewService(sequenceRepostory)
+		contactService = contact.NewService(contactRepostory, subscriptionRepository, planRepository, streamingPublisher)
+		// A visibly bad import is filed on the workspace's posture. On its own
+		// it can only reach `watch`, which changes nothing.
+		if aware, ok := contactService.(contact.OrgRiskAware); ok && orgRiskService != nil {
+			aware.WireOrgRisk(orgRiskService)
+		}
+
+		// On-demand Google Sheets -> leads sync (backend-only / control plane).
+		// Reuses the integration service for the Google token + sheet reads and
+		// the contact service for the upsert. No worker / scheduler involvement.
+		leadSyncRepository := repository.NewLeadSyncRepository(primaryDB.Pool)
+		leadSyncServiceForHandler = leadsync.NewService(leadSyncRepository, integrationServiceForHandler, contactService)
+
+		apiKeyService = apikey.NewService(cache, apiKeyRepository)
+		crmService = crm.NewService(crmRepository)
+		teamRepository := repository.NewTeamRepository(primaryDB.Pool)
+		teamService = team.NewService(teamRepository)
+		socketService = socket.NewService(cache, tokenService)
+
+		// Task scheduler. Default (TASKS_PROVIDER=local): an in-process Postgres
+		// poller, started below once the dispatch handler exists — no GCP, no
+		// webhook, no emulator. TASKS_PROVIDER=gcloud keeps Google Cloud Tasks.
+		var tasksClient tasksched.Scheduler
+		var localTasks *tasksched.Local
+		if config.TasksProvider() == "gcloud" {
+			cloudTasksCfg, err := cfg.LoadCloudTasksConfig(ctx)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+			gclient, err := gtasks.NewClient(ctx, cloudTasksCfg.QueueName, cloudTasksCfg.WebhookURL, serviceAccount, cloudTasksCfg.EmulatorHost)
+			if err != nil {
+				sentry.CaptureException(err)
+				log.Fatal(err)
+			}
+			tasksClient = gclient
+		} else {
+			localTasks = tasksched.NewLocal(taskRepository, localTasksPollInterval(), 0)
+			tasksClient = localTasks
+		}
+
+		// Template & email send services
+		templateService = template.NewService(templateRepository)
+
+		// Sending behaviour. Wired onto the scheduler rather than passed to its
+		// constructor so a deployment without it keeps every mailbox on the
+		// legacy fixed cap and min-gap path.
+		behaviorRepository := repository.NewBehaviorRepository(primaryDB.Pool)
+		behaviorService = behaviorapp.NewService(behaviorRepository, emailRepostory)
+
+		schedulerService := scheduler.NewSchedulerService(taskRepository, warmupRepository, campaignProgressRepository, emailRepostory, campaignRepostory, contactRepostory, campaignLogRepository)
+		if aware, ok := schedulerService.(scheduler.BehaviorAware); ok {
+			aware.WireBehavior(behaviorService)
+		}
+		// The sending-domain authentication gate. Nil settings (no primary DB)
+		// leaves the persisted auth state observe-only, which is the safe
+		// direction: a missing policy must never block a send.
+		if aware, ok := schedulerService.(scheduler.DomainAuthAware); ok && instanceSettings != nil {
+			aware.WireDomainAuth(instanceSettings)
+		}
+		// Recipient-timezone send-time optimization reads the org's outreach
+		// settings; without it every send stays on the sending mailbox's clock.
+		if aware, ok := schedulerService.(scheduler.OutreachAware); ok {
+			aware.WireOutreach(advancedRepository)
+		}
+		// A restricted organization sends less; a suspended one does not send.
+		if aware, ok := schedulerService.(scheduler.OrgRiskAware); ok {
+			aware.WireOrgRisk(orgRiskRepository)
+		}
+		// A resting mailbox keeps its warmup traffic but leaves cold rotation.
+		if aware, ok := schedulerService.(scheduler.LifecycleAware); ok {
+			aware.WireLifecycle(repository.NewSendLifecycleRepository(primaryDB))
+		}
+		campaignService = campaign.NewService(campaignRepostory, taskRepository, emailRepostory, campaignLogRepository, featureGateService, dailyThrottleService, schedulerService, tasksClient, streamingPublisher)
+		// The launch gate refuses a list that is known to be largely
+		// undeliverable, using the same projection preflight reports.
+		if aware, ok := campaignService.(campaign.AudienceAware); ok {
+			aware.WireAudience(campaignAudienceRepository)
+		}
+		// Delete drops attachment objects and duplicate copies them, so the
+		// campaign service needs the store the attachment handler writes to.
+		if aware, ok := campaignService.(campaign.AttachmentAware); ok {
+			aware.WireAttachments(attachmentRepoForHandler, s3ForHandler)
+		}
+		// Attaching a lead to a running campaign has to wake that campaign's
+		// parked send chain, or the lead sits queued until the chain's next
+		// tick. Wired here because contactService is built before the scheduler
+		// and Cloud Tasks client exist.
+		if contactService != nil {
+			contactService.SetCampaignWaker(campaignService)
+			// The contact drawer's "next action" is a read-only pass through
+			// the scheduler's own constraints, never a stored time.
+			if previewer, ok := schedulerService.(scheduler.ContactSendPreviewer); ok {
+				contactService.SetNextSendPreviewer(previewer)
+			}
+		}
+		emailSendService = emailsend.NewService(taskRepository, emailRepostory, userRepostory, schedulerService, tasksClient, featureGateService, dailyThrottleService)
+		if aware, ok := emailSendService.(emailsend.OrgRiskAware); ok {
+			aware.WireOrgRisk(orgRiskRepository)
+		}
+		composeService = compose.NewService(emailRepostory, repository.NewComposeRepository(primaryDB))
+		// uniboxService is constructed here (rather than alongside the
+		// other service constructors above) because cancel-scheduled
+		// needs the Cloud Tasks client for best-effort DeleteTask, and
+		// tasksClient isn't initialised until the Cloud Tasks config
+		// block runs.
+		uniboxService = unibox.NewService(cache, s3, uniboxRepository, taskRepository, tasksClient)
+
+		// Org AI skills (playbooks): CRUD for settings + prompt injection + the
+		// load_skill tool source.
+		skillsService = skills.NewService(repository.NewSkillRepository(primaryDB))
+
+		// The advanced-outreach brain also answers "is this recipient
+		// suppressed?", which the compose/reply send tools consult before
+		// sending. Constructed here (ahead of its event wiring below) so the AI
+		// tool registry can hold the suppression checker.
+		advancedService = advanced.NewService(
+			advancedRepository,
+			campaignRepostory,
+			emailRepostory,
+			taskRepository,
+			contactRepostory,
+			campaignProgressRepository,
+			crmRepository,
+			categoryRepostory,
+			uniboxRepository,
+			tasksClient,
+			warmupService,
+		)
+		// Preflight reports the same projection the launch gate acts on, so
+		// the dialog cannot say one thing and the launch another.
+		if aware, ok := advancedService.(advanced.AudienceAware); ok {
+			aware.WireAudience(campaignAudienceRepository)
+		}
+		// Preflight's content check weighs attachments the way the send path
+		// does, so the launch dialog and the campaign feed agree on the score.
+		if aware, ok := advancedService.(advanced.AttachmentAware); ok {
+			aware.WireAttachments(attachmentRepoForHandler)
+		}
+		// The deliverability gate reads the Advisor's mailbox rollups and the
+		// launch gate's list projection, so all three agree on the numbers.
+		preflightService = preflight.NewService(campaignRepostory, emailRepostory, campaignAudienceRepository, repository.NewPreflightRepository(primaryDB))
+
+		// Shared AI tool registry: every tool calls a service-layer function as
+		// the invoking user, so the dashboard agent (M3) and MCP server (M8) can
+		// never exceed the caller's permissions. Built once here with the same
+		// service instances the HTTP handlers use.
+		aiToolRegistry = aitools.BuildRegistry(aitools.Deps{
+			Contacts:     contactService,
+			CRM:          crmService,
+			Campaigns:    campaignService,
+			Analytics:    analyticsService,
+			Unibox:       uniboxService,
+			Automations:  integrationServiceForHandler,
+			Audit:        auditService,
+			Search:       aiSearch,
+			Cache:        cache,
+			Emails:       emailService,
+			EmailSend:    emailSendService,
+			Compose:      composeService,
+			Warmup:       warmupService,
+			Sequences:    sequenceService,
+			Org:          organizationService,
+			APIKeys:      apiKeyService,
+			Webhooks:     webhookServiceForHandler,
+			Subscription: subscriptionService,
+			Advanced:     advancedService,
+			FeatureGate:  featureGateService,
+			Skills:       skillsService,
+			AppBaseURL:   cfg.GetStringOptional(ctx, "APP_BASE_URL", "app_base_url", ""),
+		})
+
+		// Connected MCP servers (client direction): their enabled tools are
+		// contributed to the dashboard agent per-org (approval-gated, never
+		// auto-allowed).
+		mcpService = mcp.NewService(repository.NewMCPRepository(primaryDB), cipherService)
+		aiToolRegistry.AddDynamicSource(mcpService)
+
+		// Dashboard AI agent: sessions + streamed, approval-gated, credit-charged
+		// runs over the tool registry. Only constructed when a provider is set.
+		if aiProvider != nil {
+			aiAgentService = aiagent.NewService(
+				repository.NewAgentRepository(primaryDB),
+				aiToolRegistry, aiProvider, creditService, featureGateService, auditService, skillsService,
+				aiagent.NewVoicePreamble(organizationService),
+				organizationService,
+			)
+			// Contact research agent + its bounded background drain pool.
+			researchService = research.NewService(
+				repository.NewResearchRepository(primaryDB),
+				aiToolRegistry, aiProvider, creditService, featureGateService,
+				contactService, organizationService, streamingPublisher, skillsService,
+			)
+			researchService.StartDrainPool(ctx)
+		}
+		// Fan reply + bounce events from the advanced-outreach brain out to
+		// customer webhooks AND third-party integration actions (Slack / CRM).
+		advancedService.WireDispatcher(webhookService)
+		// Let instant action chains (reply/open/click branches) launch a
+		// "run_automation" node, the same flow the scheduler runs at a step
+		// boundary. Backend ingests deliverability + can process replies too.
+		advancedService.WireAutomationRunner(integrationServiceForHandler)
+		// Wire native (Dakiya Mail-internal) automation actions + realtime now that
+		// the advanced/contact/org services exist (the integration service was
+		// constructed earlier).
+		integrationServiceForHandler.SetNativeActions(nativeactions.Adapter{
+			Adv:      advancedService,
+			Contacts: contactRepostory,
+			Orgs:     organizationRepository,
+		})
+		integrationServiceForHandler.SetPublisher(streamingPublisher)
+		// AI automation nodes (ai_step / ai_switch) run over the same provider +
+		// credit ledger as the rest of the AI layer. Nil provider (no AI_PROVIDER)
+		// leaves the nodes returning a clean "not available".
+		integrationServiceForHandler.SetAI(aiProvider, creditService)
+		// The AI switch's optional web search shares the same pluggable backend as
+		// the campaign switch and dashboard agent.
+		integrationServiceForHandler.SetAISearch(aiSearch)
+		// Port reply-classifier Layer 3 onto the platform provider (OpenAI-first,
+		// self-hostable). Platform-paid, never charged to org credits. Nil provider
+		// leaves Layer 3 disabled (the ambiguous middle resolves to "unknown").
+		if aiProvider != nil {
+			replyclassify.SetModelClassifier(func(ctx context.Context, system, user string) (string, error) {
+				res, err := aiProvider.Complete(ctx, generation.CompletionRequest{System: system, Prompt: user, MaxTokens: 16, Temperature: generation.Deterministic()})
+				if err != nil {
+					return "", err
+				}
+				return res.Text, nil
+			})
+		}
+		// In-app notifications: API reads/writes happen here; also wire the gate
+		// onto the backend's advanced service (deliverability webhooks can ingest
+		// here too).
+		notificationService = notification.NewService(repository.NewNotificationRepository(primaryDB.Pool), streamingPublisher)
+		notificationService.WireDelivery(emailNotificationService, integrationServiceForHandler, userRepostory, organizationRepoForHandler)
+		// Mobile push (APNs): device registration always works; delivery only
+		// activates when the APNS_* env is configured. The Redis client backs
+		// the shared immediate-then-digest push window. The sender stays a nil
+		// interface (not a typed-nil *apns.Client) when unconfigured.
+		var pushSender notification.PushSender
+		if apnsClient, aerr := apns.FromEnv(); aerr != nil {
+			log.Printf("Warning: APNs push disabled: %v", aerr)
+		} else if apnsClient != nil {
+			pushSender = apnsClient
+		}
+		notificationService.WirePush(pushSender, repository.NewDeviceTokenRepository(primaryDB.Pool), cache.Client)
+		advancedService.WireNotifier(notificationService)
+		// New-device sign-in alerts: the token service fires this on session
+		// creation from an unrecognized device, delivered as a security
+		// notification (in-app + email per the user's channels).
+		tokenService.WireSignInAlerter(notification.NewSignInAlerter(notificationService))
+		advancedService.WireRealtime(streamingPublisher)
+		// Inbox agent (M10): the draft repo the review endpoints read, plus the
+		// agent wired onto the advanced service so any reply processed here also
+		// drafts. Paid + opt-in checked inside; nil provider leaves it inert.
+		aiDraftRepo = repository.NewAIDraftRepository(primaryDB.Pool)
+		advancedService.WireInboxAgent(inboxagent.NewService(
+			aiProvider, creditService, featureGateService,
+			organizationRepository, uniboxRepository, skillsService,
+			contactRepostory, aiDraftRepo, streamingPublisher,
+		))
+		emailSender := tasks.NewEmailSender(emailRepostory, eventsPublisher)
+		// Never hand a send to a worker that stopped heartbeating: nothing
+		// would execute it and nothing would report it, so the step would
+		// look sent forever. The worker reconciler re-places the mailbox and
+		// the dead-letter retry replays the task once it has.
+		if liveness, ok := emailSender.(interface{ WireWorkerLiveness(tasks.WorkerLiveness) }); ok {
+			liveness.WireWorkerLiveness(tasks.NewWorkerLiveness(workerRepository, cache))
+		}
+		tasksService = tasks.NewService(
+			tasksClient,
+			generationClient,
+			streamingPublisher,
+			eventsPublisher,
+			schedulerService,
+			cipherService,
+			emailSender,
+			featureGateService,
+			warmupService,
+			taskRepository,
+			warmupRepository,
+			warmupRoutingRepository,
+			warmupContentRepo,
+			campaignProgressRepository,
+			emailRepostory,
+			campaignRepostory,
+			contactRepostory,
+			campaignLogRepository,
+			advancedService,
+			attachmentRepoForHandler,
+			trackedLinkRepository,
+			integrationServiceForHandler, // AutomationRunner for campaign run_automation steps
+		)
+		// A restricted organization warms in the free pool, whatever it pays.
+		if aware, ok := tasksService.(tasks.OrgRiskAware); ok {
+			aware.WireOrgRisk(orgRiskRepository)
+		}
+		if aware, ok := tasksService.(tasks.WarmupThreadsAware); ok && warmupThreadRepo != nil {
+			aware.WireWarmupThreads(warmupThreadRepo)
+		}
+		// Campaign "ai" sequence steps run over the same provider + credit
+		// ledger as the automation AI nodes. Nil provider leaves them
+		// returning a clean "not available".
+		tasksService.SetAI(aiProvider, creditService)
+		tasksService.SetAISearch(aiSearch)
+		// Research-mode AI variables run a bounded web-research agent over the
+		// shared tool registry at send time.
+		tasksService.SetAITools(aiToolRegistry)
+		// Warmup sends obey the same sending-domain authentication gate as cold
+		// sends, so an unauthenticated mailbox cannot keep warming against the
+		// shared pool's reputation.
+		if instanceSettings != nil {
+			tasksService.SetDomainAuthPolicy(instanceSettings)
+		}
+		if cloudLinkService != nil {
+			tasksService.SetCloudLink(cloudLinkService)
+		}
+		if w, ok := poolLinkService.(interface {
+			WireScheduler(poollink.WarmupScheduler)
+		}); ok {
+			w.WireScheduler(tasksService)
+		}
+
+		// Admin outreach composer — sends from the platform mailer
+		// (SES/SMTP) with a configurable Reply-To, audits every send.
+		adminOutreachRepo := repository.NewAdminOutreachRepository(primaryDB.Pool)
+		adminOutreachService = adminoutreach.NewService(
+			adminOutreachRepo,
+			userRepostory,
+			organizationRepository,
+			emailNotificationService,
+		)
+
+		folderService = group.NewService(folderRepostory)
+		tagService = group.NewService(tagRepostory)
+		categoryService = group.NewService(categoryRepostory)
+
+		// Start trial expiration job in background. Only meaningful with Stripe
+		// billing: self-host unlocks every feature regardless of trial state, so
+		// there is nothing to expire and no upgrade to nudge toward.
+		if config.BillingProvider() == "stripe" {
+			trialExpirationJob := jobs.NewTrialExpirationJobWithDB(subscriptionRepository, primaryDB.Pool, emailNotificationService)
+			trialExpirationJob.WireNotifier(notificationService)
+			trialScheduler := jobs.NewTrialExpirationScheduler(trialExpirationJob, 1*time.Hour)
+			go trialScheduler.Start(ctx)
+		}
+
+		// Local task dispatcher (TASKS_PROVIDER=local): the in-process poller
+		// that fires due tasks by id. Started here, once tasksService exists to
+		// handle them. Under gcloud this stays nil (the webhook drives dispatch).
+		if localTasks != nil {
+			go localTasks.Run(ctx, func(taskID string) {
+				if xerr := tasksService.HandleTask(&proto.ProcessTask{TaskId: taskID}); xerr != nil {
+					log.Printf("local task dispatch failed for %s: %v", taskID, xerr)
+				}
+			})
+		}
+
+		// Warmup reconciler: seed/repair warmup chains for mailboxes that are
+		// warming or backing a live campaign (the health-check lane). This is
+		// the bootstrap — enabling warmup or starting a campaign doesn't itself
+		// enqueue the first warmup task.
+		go tasksService.StartWarmupReconciler(ctx, 10*time.Minute)
+
+		// Tracking-domain sweep: re-resolve every custom tracking domain hourly,
+		// re-checking each at most daily. Verification used to happen once on
+		// save and never again, so a record that propagated an hour later stayed
+		// "pending" until somebody pressed a button, and one that later broke
+		// kept every tracked link pointed at a host that no longer answers.
+		go emailService.StartTrackingDomainSweep(ctx, 1*time.Hour, 24*time.Hour)
+
+		// Campaign reconciler: re-seed active campaigns whose self-perpetuating
+		// task chain died (a swallowed enqueue, a worker bounce mid-tick, or a
+		// crash between send and enqueue). Campaigns have no other bootstrap once
+		// started, so without this a stranded campaign stops sending forever.
+		go tasksService.StartCampaignReconciler(ctx, 5*time.Minute)
+
+		// Worker reconciler: assign + (re)load every active mailbox onto its
+		// worker. Workers hold accounts in memory only, so this is what makes a
+		// freshly onboarded account send/sync and re-seeds a restarted worker.
+		go emailService.StartWorkerReconciler(ctx, 60*time.Second)
+
+		// Unibox search backfill: record the searchable text of messages synced
+		// before bodies were indexed, so search covers the whole archive and not
+		// just new mail. Walks the table once, then returns.
+		go uniboxService.StartBodyTextBackfill(ctx)
+
+		// Danger zone: schedule + execute delayed deletions (orgs, accounts).
+		dangerZoneRepository := repository.NewDangerZoneRepository(primaryDB.Pool)
+		dangerZoneService = dangerzone.NewService(
+			dangerZoneRepository,
+			organizationRepository,
+			userRepostory,
+			emailNotificationService,
+			os.Getenv("FRONTEND_BASE_URL"),
+		)
+		dangerZoneJob := jobs.NewDangerZoneJob(dangerZoneService)
+		dangerZoneScheduler := jobs.NewDangerZoneScheduler(dangerZoneJob, 1*time.Hour)
+		go dangerZoneScheduler.Start(ctx)
+
+		// Workspace archives: export a whole organization to a portable file
+		// and import one back, so a workspace can move between instances.
+		// It needs both key domains — the instance credential key for mailbox
+		// credentials and the org DEK for everything else — because neither is
+		// portable and both have to be re-keyed on the way through.
+		orgTransferService = orgtransfer.NewService(
+			repository.NewOrgTransferRepository(primaryDB),
+			cipherService,
+			credEncrypter,
+			s3,
+			orgtransfer.InstanceInfo{
+				PublicURL:  os.Getenv("APP_URL"),
+				AppVersion: os.Getenv("APP_VERSION"),
+			},
+		)
+		orgTransferJob := jobs.NewOrgTransferJob(orgTransferService)
+		orgTransferScheduler := jobs.NewOrgTransferScheduler(orgTransferJob, 1*time.Hour)
+		go orgTransferScheduler.Start(ctx)
+
+		// Prune audit entries past the retention window (90 days). Bounding the
+		// trail's age also bounds how long PII is retained. auditRepository is
+		// constructed earlier (before authService).
+		auditRetentionJob := jobs.NewAuditRetentionJob(auditRepository, 90*24*time.Hour)
+		auditRetentionScheduler := jobs.NewAuditRetentionScheduler(auditRetentionJob, 6*time.Hour)
+		go auditRetentionScheduler.Start(ctx)
+
+		// Website tracking: the snippet's settings, the ingest path the tracking
+		// service forwards page views to, and the per-workspace retention sweep
+		// that keeps the window promised on the settings page.
+		websiteTrackingRepo := repository.NewWebsiteTrackingRepository(primaryDB.Pool)
+		websiteTrackingService = websitetracking.NewService(websiteTrackingRepo, geoloc, streamingPublisher)
+		go jobs.NewWebsiteTrackingRetentionJob(websiteTrackingRepo).Start(ctx, 6*time.Hour)
+
+		// Gmail Postmaster Tools: the daily pull of Gmail's own view of each
+		// sending domain. A no-op until Google credentials are connected.
+		postmasterService = postmaster.NewService(repository.NewPostmasterRepository(primaryDB.Pool, credEncrypter))
+		go jobs.NewPostmasterSyncJob(postmasterService).Start(ctx, 24*time.Hour)
+
+		// Warmup content generator: tops the AI thread bank up toward the
+		// admin-configured per-pool/segment targets. The internal cadence gate
+		// honours the admin's cadence_hours; it no-ops when generation is
+		// disabled or unconfigured.
+		warmupGenerationJob := jobs.NewWarmupGenerationJob(warmupContentService, warmupContentRepo).WithThreadRetention(warmupThreadRepo)
+		warmupGenerationScheduler := jobs.NewWarmupGenerationScheduler(warmupGenerationJob, 30*time.Minute)
+		go warmupGenerationScheduler.Start(ctx)
+
+		// Warmup batch poller: reconciles in-flight OpenAI Batch API generation
+		// jobs (~50% cheaper, async up to 24h), ingesting completed batches into
+		// the content bank and marking failed/expired/cancelled ones. No-ops when
+		// generation is unconfigured or there are no active batch jobs.
+		warmupBatchPoller := jobs.NewWarmupBatchPoller(warmupContentService, 5*time.Minute)
+		go warmupBatchPoller.Start(ctx)
+
+		// Pre-send email verification: verify a capped batch of not-yet-checked
+		// contacts each tick so hard-bouncing addresses are dropped before any
+		// worker sends. CONTROL-PLANE ONLY — the SMTP RCPT probe dials remote MX
+		// on :25 from this backend host (a non-sending IP), never a worker.
+		// The HELO name must be a real, public FQDN: servers reject a bare or
+		// reserved greeting, and Postfix reports that rejection on RCPT, where
+		// the prober used to read it as a dead mailbox (issue #200). APP_URL's
+		// host is the instance's own public name, so it is the right fallback;
+		// when neither is usable the verifier declines to probe instead of
+		// inventing verdicts.
+		//
+		// EMAIL_VERIFY_PROXY routes the probe through a SOCKS5 proxy. Most cloud
+		// providers block outbound :25 and will not open it, which leaves every
+		// verdict "unknown"; a proxy with :25 open is the way out. A bad proxy
+		// URL is fatal at boot rather than silently ignored — falling back to a
+		// direct dial would send probe traffic from the sending IPs, which is
+		// what the proxy was there to prevent.
+		emailVerifyProxy, proxyErr := emailverify.ParseProxyURL(os.Getenv("EMAIL_VERIFY_PROXY"))
+		if proxyErr != nil {
+			log.Fatalf("EMAIL_VERIFY_PROXY is not a usable socks5:// url: %v", proxyErr)
+		}
+		emailVerifier := emailverify.New(emailverify.Config{
+			HeloHost: emailVerifyHeloHost(),               // e.g. verify.dakiyamail.com
+			MailFrom: os.Getenv("EMAIL_VERIFY_MAIL_FROM"), // e.g. verify@dakiyamail.com
+			Proxy:    emailVerifyProxy,
+		})
+		emailVerifyService = emailverifyapp.NewService(contactRepostory, emailVerifier)
+		emailVerificationJob := jobs.NewEmailVerificationJob(emailVerifyService, 100)
+		emailVerificationScheduler := jobs.NewEmailVerificationScheduler(emailVerificationJob, 15*time.Minute)
+		go emailVerificationScheduler.Start(ctx)
+
+		// Seed inbox-placement testing: send a tokenized copy of a template
+		// through a real sender to the seed panel, then classify where it landed
+		// by looking the token up in each seed's synced unibox entries.
+		placementRepository = repository.NewPlacementRepository(primaryDB)
+		placementService = placement.NewService(placementRepository, emailRepostory, emailSender)
+		placementPoller := jobs.NewPlacementPoller(placementService, 2*time.Minute)
+		go placementPoller.Start(ctx)
+
+		// Auto-pause guardrails: pause any active campaign whose bounce,
+		// complaint, or reply rate has left the band its owner set. Fifteen
+		// minutes is fast enough that a campaign cannot do much damage inside
+		// one window at the platform's per-mailbox defaults. The same tick
+		// prunes expired daily sending plans.
+		guardrailService := guardrail.NewService(
+			repository.NewGuardrailRepository(primaryDB.Pool),
+			campaignLogRepository,
+			auditService,
+			notificationService,
+		)
+		guardrailJob := jobs.NewGuardrailJob(guardrailService, behaviorRepository)
+		guardrailScheduler := jobs.NewGuardrailScheduler(guardrailJob, 15*time.Minute)
+		go guardrailScheduler.Start(ctx)
+
+		// Advisor. Detection is deterministic Go over a per-org snapshot and
+		// always runs; the narrator is optional and only rewrites the card copy,
+		// so an install with no LLM provider still gets every recommendation.
+		// Fixes execute through the AI tool registry as the invoking member, so
+		// the Advisor can never apply a change that member could not make by
+		// hand. Registering its read tools here (rather than in BuildRegistry)
+		// closes the loop between the two without an import cycle.
+		advisorRepository = repository.NewAdvisorRepository(primaryDB)
+		var advisorNarrator *advisor.Narrator
+		if aiProvider != nil {
+			advisorNarrator = advisor.NewNarrator(
+				aiProvider,
+				aiagent.NewVoicePreamble(organizationService),
+				advisorTier{featureGateService},
+				advisorRepository,
+			)
+		}
+		// The agent fix reuses the assistant's provider, tool registry, and
+		// credit meter, so a finding a settings change cannot resolve (broken
+		// copy, a list full of shared inboxes) still has a way to be fixed.
+		var advisorAgent *advisor.AgentDeps
+		if aiProvider != nil {
+			advisorAgent = &advisor.AgentDeps{
+				Agent:   aiProvider,
+				Tools:   aiToolRegistry,
+				Credits: creditService,
+				Tier:    advisorTier{featureGateService},
+			}
+		}
+		advisorService = advisor.NewService(advisorRepository, aiToolRegistry, advisorNarrator, auditService,
+			advisorMembers{organizationService}, advisorAgent,
+			// Normalized: the CNAME value the advisor hands over has to be the
+			// bare host, whatever shape TRACKING_DOMAIN was set in.
+			advisor.WithTrackingHost(config.TrackingHostname()),
+			// So the domain-auth finding reports this install's actual gate
+			// (enforced or not, and the grace window) instead of a default one.
+			advisor.WithDomainAuthPolicy(instanceSettings))
+		aitools.RegisterAdvisorTools(aiToolRegistry, advisorService)
+		go (&advisor.Runner{Repo: advisorRepository, Service: advisorService}).Run(ctx)
+
+		addr = apiCfg.Hostname
+		ginMode = apiCfg.GinMode
+		websocketURI = apiCfg.WebsocketURI
+		allowedOrigins = apiCfg.AllowedOrigins
+
+		// Infrastructure liveness probes for the admin System Status page.
+		// Wired here because the concrete clients live in this scope.
+		systemChecker = sysstatus.New()
+		systemChecker.Add("postgres", func(ctx context.Context) error { return primaryDB.Ping(ctx) })
+		systemChecker.Add("redis", func(ctx context.Context) error { return cache.Ping(ctx).Err() })
+		switch bus.Name() {
+		case "kafka":
+			systemChecker.Add("kafka", sysstatus.TCPCheck(kafkaBootstrapServers))
+		case "nats":
+			systemChecker.Add("nats", sysstatus.TCPCheck(strings.TrimPrefix(getenvDefault("NATS_URL", "nats://localhost:4222"), "nats://")))
+		}
+		if sr := os.Getenv("SCHEMA_REGISTRY_URL"); sr != "" {
+			systemChecker.Add("schema-registry", sysstatus.HTTPCheck(strings.TrimRight(sr, "/")+"/subjects"))
+		}
+		if hu := wsHealthURL(websocketURI); hu != "" {
+			systemChecker.Add("realtime", sysstatus.HTTPCheck(hu))
+		}
+		if v := os.Getenv("TRACKING_SERVICE_URL"); v != "" {
+			systemChecker.Add("tracking", sysstatus.HTTPCheck(strings.TrimRight(v, "/")+"/health"))
+		}
+	}
+
+	// The facts only boot knows, handed to the configuration and health pages so
+	// they report what this process actually resolved rather than re-reading the
+	// environment and drifting from it.
+	instanceRuntime := &instanceconfig.Runtime{
+		CORSOrigins:       splitList(os.Getenv("CORS_ALLOW_ORIGINS")),
+		WebAuthnRPID:      os.Getenv("WEBAUTHN_RP_ID"),
+		WebAuthnRPOrigins: splitList(os.Getenv("WEBAUTHN_RP_ORIGINS")),
+		OIDCRedirectURL:   oidcRedirectURL(),
+		OIDCConfigured:    oidcLogin != nil,
+		OIDCDiscoveryErr:  oidcDiscoveryErr,
+		MailTransportKind: mailTransportKind(mailTransport),
+		MailDelivers:      mailTransport != nil && mailTransport.Delivers,
+		PasskeysUsable:    passkeysUsable,
+		InsecureDefaults:  insecureDefaultsInUse,
+		Policy:            authPolicy,
+		WebsocketURL:      os.Getenv("WEBSOCKET_URL"),
+	}
+	instanceChecks := instancecheck.New(instancecheck.Deps{
+		Runtime:   instanceRuntime,
+		Transport: mailTransport,
+		Policy:    authPolicy,
+		DB:        instanceChecksDB,
+		Cache:     authCache,
+	})
+
+	h := &handler.Handler{
+		AuthService:           authService,
+		ExternalAuthProviders: externalAuthProviders,
+
+		MailDelivers:     mailTransport != nil && mailTransport.Delivers,
+		MailTransport:    mailTransportKind(mailTransport),
+		MailTransportRef: mailTransport,
+		BootstrapService: bootstrapService,
+		PasskeysUsable:   passkeysUsable,
+
+		InstanceRuntime:  instanceRuntime,
+		InstanceChecks:   instanceChecks,
+		InstanceSettings: instanceSettings,
+
+		PoolLinkService:   poolLinkService,
+		CloudLinkService:  cloudLinkService,
+		SalesBlinkService: salesBlinkService,
+
+		PostmasterService: postmasterService,
+
+		TokenService:     tokenService,
+		PasskeyService:   passkeyService,
+		UserService:      userService,
+		EmailService:     emailService,
+		CampaignService:  campaignService,
+		AnalyticsService: analyticsService,
+		RateLimitService: rateLimitService,
+		ContactService:   contactService,
+		SequenceService:  sequenceService,
+		UniboxService:    uniboxService,
+
+		FolderService:   folderService,
+		TagService:      tagService,
+		CategoryService: categoryService,
+
+		TzService:           tzService,
+		SocketService:       socketService,
+		TasksService:        tasksService,
+		NotificationService: notificationService,
+		TwoFAService:        twofaService,
+
+		// API Keys
+		APIKeyService: apiKeyService,
+
+		// Subscription & billing
+		SubscriptionService: subscriptionService,
+		StripeService:       stripeService,
+		DiscountService:     discountService,
+		ReferralService:     referralService,
+
+		// Trial & feature gates
+		TrialService:            trialService,
+		FeatureGateService:      featureGateService,
+		WorkerAssignmentService: workerAssignmentService,
+
+		// Organization & IAM
+		OrganizationService: organizationService,
+		OrgRiskService:      orgRiskService,
+
+		// CRM
+		CRMService: crmService,
+
+		// Teams
+		TeamService: teamService,
+
+		// Email send & templates
+		TemplateService:  templateService,
+		EmailSendService: emailSendService,
+		ComposeService:   composeService,
+
+		// Admin
+		AdminService:         adminService,
+		AdminOutreachService: adminOutreachService,
+
+		// SSH-managed worker lifecycle
+		WorkerOrchestrator: workerOrchestrator,
+		WorkerRepo:         workerRepoForHandler,
+		CredentialsRepo:    credentialsRepository,
+		ReleasesService:    releasesService,
+
+		// Notifications
+		EmailNotificationService: emailNotificationService,
+
+		// Advanced outreach controls
+		AdvancedService: advancedService,
+
+		// Warmup health
+		WarmupService:     warmupService,
+		WarmupRoutingRepo: warmupRoutingRepoForHandler,
+		WebhookService:    webhookServiceForHandler,
+
+		// Warmup content bank + offline AI generator
+		WarmupContentRepo:    warmupContentRepo,
+		WarmupContentService: warmupContentService,
+
+		// AI writing assistant + credit ledger
+		CreditService:    creditService,
+		WritingGenerator: writingGenerator,
+		AIProvider:       aiProvider,
+		AIEnv:            aiEnvSettings,
+		AISearch:         aiSearch,
+		AITools:          aiToolRegistry,
+		AIAgentService:   aiAgentService,
+		ResearchService:  researchService,
+		SkillsService:    skillsService,
+		MCPService:       mcpService,
+		AIDraftRepo:      aiDraftRepo,
+
+		// Pre-send email verification
+		EmailVerifyService: emailVerifyService,
+
+		// Seed inbox-placement testing
+		PlacementRepo:    placementRepository,
+		PlacementService: placementService,
+
+		BehaviorService:   behaviorService,
+		AdvisorService:    advisorService,
+		AdvisorRepository: advisorRepository,
+		PreflightService:  preflightService,
+
+		// Third-party integrations
+		IntegrationService: integrationServiceForHandler,
+		ContactRepo:        contactRepoForHandler,
+		StreamingPublisher: streamingPublisher,
+
+		// OAuth 2.1 authorization server
+		OAuthService: oauthService,
+
+		// On-demand Google Sheets -> leads sync
+		LeadSyncService: leadSyncServiceForHandler,
+
+		WebsocketURI: websocketURI,
+
+		// Object storage + direct repository handles for handlers
+		// without a dedicated service layer (avatars, etc.).
+		Storage:                  s3ForHandler,
+		EncryptedKeys:            encryptedKeys,
+		EmailMessageMap:          emailMessageMapForHandler,
+		EmailSyncState:           emailSyncStateRepository,
+		TrackedLinks:             trackedLinkRepository,
+		WebsiteTrackingService:   websiteTrackingService,
+		UserRepo:                 userRepoForHandler,
+		OrgRepo:                  organizationRepoForHandler,
+		AttachmentRepo:           attachmentRepoForHandler,
+		StorageBackendRepo:       storageBackendRepo,
+		CloudCredentialRepo:      cloudCredentialRepo,
+		ProvisioningTemplateRepo: provisioningTemplateRepo,
+		ProvisioningJobRepo:      provisioningJobRepo,
+		ProvisioningPolicyRepo:   provisioningPolicyRepo,
+
+		// Danger zone
+		DangerZoneService:  dangerZoneService,
+		OrgTransferService: orgTransferService,
+
+		// Admin System Status probes
+		SystemChecker: systemChecker,
+
+		// Organization-wide audit trail, backed by Postgres. The no-op
+		// fallback (audit.NewNoOpService) remains for entrypoints without
+		// a database.
+		AuditService: auditService,
+	}
+
+	m := &middleware.Handler{
+		TokenService:        tokenService,
+		APIKeyService:       apiKeyService,
+		IdempotencyService:  idempotencyService,
+		OrganizationService: organizationService,
+		OAuthService:        oauthService,
+		Cache:               authCache,
+		PoolLinkService:     poolLinkService,
+	}
+
+	oidcH := &middleware.OidcHandler{
+		ServiceAccount: serviceAccount,
+		KeySet:         keySet,
+		AppEnv:         os.Getenv("APP_ENV"),
+	}
+
+	sentry.CaptureMessage("Starting the backend on " + addr)
+
+	router := api.Run(h, m, oidcH, addr, ginMode, allowedOrigins)
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: router,
+	}
+
+	// Start server in a goroutine
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	log.Println("Backend started on", addr)
+
+	// Wait for interrupt signal for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	log.Println("Shutting down backend...")
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	log.Println("Backend stopped")
+}
+
+// emailVerifyHeloHost resolves the hostname the pre-send verifier announces in
+// EHLO/HELO: the explicit setting first, else the host of APP_URL. Returns ""
+// when neither is set, which makes the verifier skip the SMTP probe rather than
+// greet remote servers with a name they will reject.
+func emailVerifyHeloHost() string {
+	if h := strings.TrimSpace(os.Getenv("EMAIL_VERIFY_HELO_HOST")); h != "" {
+		return h
+	}
+	if u, err := url.Parse(strings.TrimSpace(os.Getenv("APP_URL"))); err == nil {
+		return u.Hostname()
+	}
+	return ""
+}
+
+func getenvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// localTasksPollInterval is how often the in-process dispatcher scans for due
+// tasks. Default 1s; override with TASKS_LOCAL_POLL_INTERVAL (a Go duration).
+func localTasksPollInterval() time.Duration {
+	d, err := time.ParseDuration(getenvDefault("TASKS_LOCAL_POLL_INTERVAL", "1s"))
+	if err != nil || d <= 0 {
+		return time.Second
+	}
+	return d
+}
+
+// wsHealthURL derives the realtime service's HTTP /health URL from the
+// public websocket URI (ws[s]://host[:port]/... -> http[s]://host[:port]/health).
+func wsHealthURL(wsURI string) string {
+	if wsURI == "" {
+		return ""
+	}
+	u, err := url.Parse(wsURI)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	switch u.Scheme {
+	case "wss":
+		u.Scheme = "https"
+	default:
+		u.Scheme = "http"
+	}
+	u.Path = "/health"
+	u.RawQuery = ""
+	return u.String()
+}
+
+// advisorTier adapts the feature gate to the advisor narrator's model-tier
+// lookup. A gate error is treated as "not paid": the only consequence is that
+// a card's copy is rewritten by the cheaper model.
+type advisorTier struct{ gate feature.FeatureGateService }
+
+func (t advisorTier) IsPaid(ctx context.Context, orgID uuid.UUID) bool {
+	if t.gate == nil {
+		return false
+	}
+	paid, err := t.gate.IsPaidOrganization(ctx, orgID)
+	return err == nil && paid
+}
+
+// advisorMembers resolves the autopilot actor's permissions. An error here
+// means the member is gone or was never in this org, and autopilot fails closed
+// on it rather than falling back to acting with no permission mask at all.
+type advisorMembers struct {
+	orgs organization.OrganizationService
+}
+
+func (m advisorMembers) MemberPermissions(ctx context.Context, orgID, userID uuid.UUID) (models.OrganizationPermission, error) {
+	if m.orgs == nil {
+		return 0, errors.New("organization service unavailable")
+	}
+	member, xerr := m.orgs.GetMembership(ctx, orgID, userID)
+	if xerr != nil {
+		return 0, xerr
+	}
+	if member == nil {
+		return 0, errors.New("not a member of this organization")
+	}
+	return member.Permissions, nil
+}

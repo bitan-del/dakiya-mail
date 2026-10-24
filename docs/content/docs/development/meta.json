@@ -1,0 +1,21 @@
+{
+  "title": "Development",
+  "description": "Self-host, deploy, and develop Dakiya Mail",
+  "root": true,
+  "pages": [
+    "---Self-hosting---",
+    "deployment-guide",
+    "first-run",
+    "accounts-and-access",
+    "dakiyactl",
+    "configuration",
+    "instance-health",
+    "troubleshooting",
+    "---Development---",
+    "local-development",
+    "sandbox",
+    "---Reference---",
+    "architecture",
+    "events"
+  ]
+}

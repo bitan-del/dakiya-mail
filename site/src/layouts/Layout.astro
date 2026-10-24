@@ -1,0 +1,144 @@
+---
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import LaunchBanner from '../components/LaunchBanner.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  ogImage?: string;
+  /** og:type — 'website' for most pages, 'article' for Learn essays */
+  ogType?: string;
+  /** Extra structured data injected per-page (e.g. BlogPosting, SoftwareApplication) */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+  noIndex?: boolean;
+  /** Toggle "marketing chrome" header/footer */
+  bare?: boolean;
+}
+
+const {
+  title,
+  description = 'Dakiya Mail is the deliverability platform for cold email. Warm your inboxes, send at scale, keep your reputation clean.',
+  ogImage = '/og-image.jpg',
+  ogType = 'website',
+  jsonLd,
+  noIndex = false,
+  bare = false,
+} = Astro.props;
+
+const extraJsonLd = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
+
+const siteOrigin = (Astro.site ?? new URL('https://dakiyamail.com')).toString().replace(/\/$/, '');
+const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://dakiyamail.com').toString();
+const ogImageAbsolute = new URL(ogImage, Astro.site ?? 'https://dakiyamail.com').toString();
+
+// Schema.org Organization payload; add address and registration once they exist.
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  '@id': `${siteOrigin}#org`,
+  name: 'Dakiya Mail',
+  legalName: 'Dakiya Mail',
+  url: siteOrigin,
+  logo: `${siteOrigin}/web-app-manifest-512x512.png`,
+  image: `${siteOrigin}/og-image.jpg`,
+  description,
+  email: 'team@dakiyamail.com',
+  contactPoint: [
+    {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: 'team@dakiyamail.com',
+      availableLanguage: ['en'],
+    },
+  ],
+  sameAs: [
+    'https://github.com/bitan-del/dakiya-mail',
+  ],
+};
+
+const websiteJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'Dakiya Mail',
+  url: siteOrigin,
+  publisher: { '@id': `${siteOrigin}#org` },
+};
+---
+<!doctype html>
+<html lang="en" class="bg-background text-foreground">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <!-- Favicons: rounded sky chip variants generated from the social avatar.
+         Sized PNGs are preferred by modern browsers; the .ico is a legacy
+         fallback for older clients that still poke /favicon.ico. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Dakiya Mail" />
+    <meta name="application-name" content="Dakiya Mail" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#0284c7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#075985" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content="Dakiya Mail" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={ogImageAbsolute} />
+    <meta property="og:image:secure_url" content={ogImageAbsolute} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="Dakiya Mail: the open-source cold email platform" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@dakiya" />
+    <meta name="twitter:creator" content="@dakiya" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageAbsolute} />
+    <meta name="twitter:image:alt" content="Dakiya Mail: the open-source cold email platform" />
+
+    <!-- Crawler hints -->
+    <meta name="robots" content={noIndex ? 'noindex,nofollow' : 'index,follow,max-image-preview:large,max-snippet:-1'} />
+    <meta name="googlebot" content={noIndex ? 'noindex,nofollow' : 'index,follow,max-image-preview:large,max-snippet:-1'} />
+
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="alternate" type="application/rss+xml" title="Dakiya Mail Blog" href="/blog/rss.xml" />
+
+    <!-- Structured data: Organization + WebSite (+ optional per-page schema) -->
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(organizationJsonLd)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(websiteJsonLd)} />
+    {extraJsonLd.map((schema) => (
+      <script type="application/ld+json" is:inline set:html={JSON.stringify(schema)} />
+    ))}
+  </head>
+  <body class="min-h-screen flex flex-col antialiased">
+    {!bare && <LaunchBanner />}
+    {!bare && <Header />}
+    <main class="flex-1">
+      <slot />
+    </main>
+    {!bare && <Footer />}
+  </body>
+</html>

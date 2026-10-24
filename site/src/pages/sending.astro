@@ -1,0 +1,429 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroAtmosphere from '../components/HeroAtmosphere.astro';
+import Icon from '../components/Icon.astro';
+import CTA from '../components/CTA.astro';
+import PillarPosts from '../components/PillarPosts.astro';
+
+// Single-send trace
+const trace = [
+  { t: 'T+0ms',     stage: 'queue',         actor: 'backend',    body: 'campaign_scheduler picks recipient · checks per-mailbox cap (47/100) + gap (last send 11m ago > 10m)' },
+  { t: 'T+4ms',     stage: 'kafka',         actor: 'backend →',  body: 'publishes send command to worker.commands.w-01 with message envelope + mailbox creds reference' },
+  { t: 'T+8ms',     stage: 'consume',       actor: '→ worker',   body: 'worker w-01 consumes command, fetches OAuth refresh token from KMS-cached DEK, builds RFC 5322 message' },
+  { t: 'T+121ms',   stage: 'oauth',         actor: 'provider',   body: 'refresh access token from Google identity service' },
+  { t: 'T+312ms',   stage: 'smtp send',     actor: 'gmail api',  body: 'POST users.messages.send → 200 OK · returns gmail message id 18f3a2b9c1' },
+  { t: 'T+318ms',   stage: 'ack',           actor: '← worker',   body: 'worker publishes send-result event to worker.results.w-01 · cap usage incremented to 48/100' },
+  { t: 'T+326ms',   stage: 'persist',       actor: 'consumer',   body: 'consumer folds result into campaign state · contact moves to "sent" status' },
+];
+
+const scenarios = [
+  {
+    label: 'Founder · 1 mailbox',
+    mailboxes: 1,
+    workers: 1,
+    daily: 100,
+    note: 'A single ben@acme.com runs on one worker. Default 100/day cap. Plenty of headroom on the worker for warmup partners.',
+  },
+  {
+    label: 'Sales team · 10 mailboxes',
+    mailboxes: 10,
+    workers: 1,
+    daily: 1000,
+    featured: true,
+    note: 'Right at the per-worker concentration warning. One worker carries all 10 mailboxes; healthy as long as no mailbox drifts.',
+  },
+  {
+    label: 'Agency · 50 mailboxes',
+    mailboxes: 50,
+    workers: 5,
+    daily: 5000,
+    note: 'Spread across 5 workers so each holds ~10. Concentration warnings never fire. Adding mailboxes triggers a new worker, not a denser one.',
+  },
+];
+
+const providers = [
+  { name: 'Google Workspace',  tag: 'Gmail · OAuth 2.0', body: 'Gmail API for send. Threaded replies preserved via In-Reply-To and References. Postmaster Tools surfaced where the domain is enrolled.', accent: '#ea4335' },
+  { name: 'Microsoft 365',     tag: 'Outlook · OAuth',   body: 'Graph API for send with shared-mailbox support. IMAP and EWS for sync. Tenant-scoped admin consent.', accent: '#0078d4' },
+  { name: 'Custom SMTP / IMAP',tag: 'BYOS · TLS',        body: 'Bring your own server. TLS, STARTTLS, app passwords, and OAuth where the provider supports it. iCloud and Zoho work first-class.', accent: '#0284c7' },
+];
+
+const faq = [
+  ['How does worker assignment happen?',     'Mailboxes are pinned to a worker on first connect and stay there for stability. The control plane can rebalance live by moving the mailbox to a different worker without dropping campaigns or warmup.'],
+  ['What happens if a worker crashes?',      'Worker state is disposable. A replacement worker reads pending commands from the same Kafka topic on boot and resumes. No mailbox is stuck waiting on a single host.'],
+  ['Can a single mailbox use multiple IPs?', 'No. A mailbox lives on one worker with one IP at a time so receiver reputation can stabilise. Migration changes the IP intentionally and is logged.'],
+  ['How are bursts prevented?',              'The per-mailbox 600-second gap is enforced server-side. Even if a campaign queues 100 sends at once, dispatch is rate-limited to the gap, not the queue size.'],
+];
+
+---
+<Layout
+  title="Distributed Sending Engine | Dakiya Mail"
+  description="A distributed sending engine that spreads cold mail across many mailboxes, many workers and many IPs. Per-mailbox safety caps baked in."
+>
+  <!-- ============================================================
+       HERO · HeroAtmosphere, matches home / pricing / warmup / campaigns
+  ============================================================ -->
+  <section class="relative isolate overflow-hidden">
+    <HeroAtmosphere />
+
+    <div class="container-page relative pt-16 md:pt-24 pb-44 md:pb-56 text-center">
+      <div class="inline-flex items-center gap-2 h-7 pl-1 pr-3 rounded-full bg-white/15 backdrop-blur ring-1 ring-white/25 text-[12px] text-white/95 shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+        <span class="inline-flex items-center h-5 px-1.5 rounded-full text-[10.5px] font-semibold uppercase tracking-[0.06em] bg-white" style="color:#0369a1;">
+          Sending engine
+        </span>
+        Distributed across many machines, many IPs
+      </div>
+
+      <h1 class="mt-8 md:mt-10 text-[44px] sm:text-6xl md:text-[72px] lg:text-[80px] font-semibold tracking-[-0.04em] leading-[0.98] text-white max-w-4xl mx-auto">
+        Many mailboxes.<br/>Many workers. Many IPs.
+      </h1>
+      <p class="mt-6 text-[17px] md:text-[19px] text-white/80 max-w-2xl mx-auto leading-relaxed">
+        Not a glorified SMTP relay. The control plane decides what to send. Workers spread sends across machines and IPs so no single point becomes a reputation liability.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="https://app.dakiyamail.com/register" class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-semibold bg-white hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.3)] transition-all duration-200 ease-out shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18)]">
+          <span style="color:#075985;">Connect a mailbox</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#075985" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="#anatomy" class="inline-flex h-11 px-5 items-center rounded-[10px] text-[14.5px] font-medium bg-white/10 backdrop-blur ring-1 ring-white/40 text-white hover:bg-white/20 hover:-translate-y-0.5 transition-all duration-200 ease-out">
+          See the architecture
+        </a>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       ANATOMY · big architecture diagram as the centerpiece
+  ============================================================ -->
+  <section id="anatomy" class="border-b border-[color:var(--border)] bg-white py-20 md:py-28 scroll-mt-4">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Anatomy</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          The engine, end to end.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          Every component, every link. The backend never talks to a mailbox provider directly. Workers never read from Postgres. Each plane has one job and stays in its lane.
+        </p>
+      </div>
+
+      <!-- Big architecture SVG -->
+      <div class="rounded-[14px] bg-[#0c1224] ring-1 ring-white/10 overflow-hidden">
+        <div class="px-6 py-3 border-b border-white/10 flex items-center justify-between text-[10.5px] font-mono text-white/55">
+          <span>architecture · v3</span>
+          <span>backend → kafka → workers → providers → receivers</span>
+        </div>
+        <div class="p-6 md:p-10">
+          <svg viewBox="0 0 1000 440" class="w-full h-auto">
+            <defs>
+              <linearGradient id="archLine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.7"/>
+                <stop offset="100%" stop-color="#7dd3fc" stop-opacity="0.2"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Lane labels -->
+            <text x="100" y="24" fill="#7dd3fc" font-size="10" font-family="ui-monospace,monospace" letter-spacing="2">CONTROL PLANE</text>
+            <text x="500" y="24" fill="#7dd3fc" font-size="10" font-family="ui-monospace,monospace" letter-spacing="2">EXECUTION PLANE</text>
+            <text x="820" y="24" fill="#7dd3fc" font-size="10" font-family="ui-monospace,monospace" letter-spacing="2">RECEIVERS</text>
+
+            <!-- Backend -->
+            <rect x="40" y="50" width="180" height="60" rx="8" fill="rgba(255,255,255,0.05)" stroke="#7dd3fc" stroke-opacity="0.45"/>
+            <text x="130" y="75" text-anchor="middle" fill="white" font-size="13" font-weight="600">Backend (REST)</text>
+            <text x="130" y="92" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="ui-monospace,monospace">cmd/backend</text>
+
+            <!-- Postgres -->
+            <rect x="40" y="140" width="180" height="50" rx="8" fill="rgba(255,255,255,0.05)" stroke="#7dd3fc" stroke-opacity="0.3"/>
+            <text x="130" y="162" text-anchor="middle" fill="white" font-size="12" font-weight="600">Postgres</text>
+            <text x="130" y="178" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="ui-monospace,monospace">campaigns · contacts · auth</text>
+
+            <!-- Consumer -->
+            <rect x="40" y="220" width="180" height="50" rx="8" fill="rgba(255,255,255,0.05)" stroke="#7dd3fc" stroke-opacity="0.3"/>
+            <text x="130" y="242" text-anchor="middle" fill="white" font-size="12" font-weight="600">Consumer</text>
+            <text x="130" y="258" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="ui-monospace,monospace">cmd/consumer</text>
+
+            <!-- Kafka spine -->
+            <rect x="290" y="50" width="100" height="340" rx="8" fill="rgba(14,165,233,0.08)" stroke="#0ea5e9" stroke-opacity="0.5"/>
+            <text x="340" y="78" text-anchor="middle" fill="#7dd3fc" font-size="11" font-family="ui-monospace,monospace" letter-spacing="1.5">KAFKA</text>
+            <text x="340" y="120" text-anchor="middle" fill="#cbd5e1" font-size="10" font-family="ui-monospace,monospace">worker.commands.*</text>
+            <text x="340" y="140" text-anchor="middle" fill="#cbd5e1" font-size="10" font-family="ui-monospace,monospace">worker.results.*</text>
+            <text x="340" y="160" text-anchor="middle" fill="#cbd5e1" font-size="10" font-family="ui-monospace,monospace">tracking.events</text>
+            <text x="340" y="180" text-anchor="middle" fill="#cbd5e1" font-size="10" font-family="ui-monospace,monospace">deliverability</text>
+
+            <!-- Workers column -->
+            {[80, 170, 260, 350].map((y, i) => (
+              <g>
+                <rect x="450" y={y} width="200" height="60" rx="8" fill="rgba(255,255,255,0.05)" stroke="#7dd3fc" stroke-opacity="0.35"/>
+                <circle cx="467" cy={y + 18} r="3" fill="#10b981"/>
+                <text x="482" y={y + 21} fill="white" font-size="12" font-weight="600" font-family="ui-monospace,monospace">worker-{String(i + 1).padStart(2, '0')}</text>
+                <text x="467" y={y + 38} fill="#94a3b8" font-size="10" font-family="ui-monospace,monospace">192.0.2.{14 + i * 14} · {7 + i} mailboxes</text>
+                <text x="467" y={y + 52} fill="#64748b" font-size="9" font-family="ui-monospace,monospace">+ Redis · KMS · S3</text>
+              </g>
+            ))}
+
+            <!-- Providers -->
+            {[
+              { y: 80,  name: 'Gmail API',      color: '#ea4335' },
+              { y: 170, name: 'Graph API',      color: '#0078d4' },
+              { y: 260, name: 'SMTP / IMAP',    color: '#0ea5e9' },
+              { y: 350, name: 'iCloud / Zoho',  color: '#7c3aed' },
+            ].map((p, i) => (
+              <g>
+                <rect x="730" y={p.y} width="220" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="#7dd3fc" stroke-opacity="0.25"/>
+                <circle cx="747" cy={p.y + 18} r="3" fill={p.color}/>
+                <text x="762" y={p.y + 21} fill="white" font-size="12" font-weight="600" font-family="ui-monospace,monospace">{p.name}</text>
+                <text x="747" y={p.y + 38} fill="#94a3b8" font-size="10" font-family="ui-monospace,monospace">OAuth · refresh tokens</text>
+                <text x="747" y={p.y + 52} fill="#64748b" font-size="9" font-family="ui-monospace,monospace">→ Gmail · Outlook · receivers</text>
+              </g>
+            ))}
+
+            <!-- Lines: backend/consumer ↔ kafka -->
+            <line x1="220" y1="80" x2="290" y2="120" stroke="url(#archLine)" stroke-width="1.5"/>
+            <line x1="220" y1="245" x2="290" y2="220" stroke="url(#archLine)" stroke-width="1.5"/>
+            <line x1="220" y1="165" x2="290" y2="220" stroke="#7dd3fc" stroke-opacity="0.2" stroke-width="1" stroke-dasharray="3 4"/>
+
+            <!-- Lines: kafka ↔ workers -->
+            {[110, 200, 290, 380].map((y, i) => (
+              <g>
+                <line x1="390" y1={200} x2="450" y2={y} stroke="url(#archLine)" stroke-width="1.5"/>
+                <circle r="2.5" fill="#7dd3fc" opacity="0.95">
+                  <animateMotion dur={`${3 + i * 0.3}s`} repeatCount="indefinite" begin={`${i * 0.5}s`}
+                    path={`M 390 200 L 450 ${y}`}/>
+                </circle>
+              </g>
+            ))}
+
+            <!-- Lines: workers → providers -->
+            {[110, 200, 290, 380].map((y) => (
+              <g>
+                <line x1="650" y1={y} x2="730" y2={y} stroke="#7dd3fc" stroke-opacity="0.4" stroke-width="1.5"/>
+                <circle r="2.5" fill="#0ea5e9">
+                  <animateMotion dur="2.5s" repeatCount="indefinite"
+                    path={`M 650 ${y} L 730 ${y}`}/>
+                </circle>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+
+      <!-- Annotation legend -->
+      <div class="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-[12.5px]">
+        {[
+          { c: '#7dd3fc', t: 'Control plane',   d: 'Owns Postgres. Decides assignment. Never sends mail.' },
+          { c: '#0ea5e9', t: 'Kafka spine',     d: 'Per-worker command + result topics. Replayable.' },
+          { c: '#10b981', t: 'Execution plane', d: 'Disposable workers. One IP each. No SQL connection.' },
+        ].map((l) => (
+          <div class="flex items-baseline gap-3">
+            <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" style={`background: ${l.c}`}></span>
+            <div>
+              <div class="text-foreground font-semibold">{l.t}</div>
+              <div class="text-foreground/60">{l.d}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       TRACE A SINGLE SEND · timeline with timestamps + actors
+  ============================================================ -->
+  <section class="border-b border-[color:var(--border)] bg-[color:var(--surface-1)]/40 py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Trace a single send</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          318ms from queue to 200 OK.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          One message, every handoff. Latencies here are illustrative for a Gmail send on a warm worker. Real traces are visible in the per-mailbox event view.
+        </p>
+      </div>
+
+      <!-- Trace timeline -->
+      <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden">
+        <div class="px-6 py-3 border-b border-[color:var(--border)] bg-[color:var(--surface-1)]/60 flex items-center justify-between text-[10.5px] font-mono text-muted-foreground">
+          <span>trace · msg_01HQX9F7P3A8KY2NJM4R6BWT0S</span>
+          <span>mailbox: ben@acme.com · worker: w-01</span>
+        </div>
+
+        <div class="relative">
+          <!-- Vertical spine -->
+          <div class="absolute left-[110px] top-6 bottom-6 w-px bg-[color:var(--border)]"></div>
+
+          {trace.map((s, i) => (
+            <div class="grid grid-cols-[90px_30px_120px_1fr] gap-4 px-6 py-4 border-b border-[color:var(--border)] last:border-b-0 items-baseline">
+              <div class="font-mono text-[11.5px] text-foreground/65">{s.t}</div>
+              <div class="relative flex justify-center pt-1">
+                <span class={`relative w-2.5 h-2.5 rounded-full ${i === trace.length - 1 ? 'bg-emerald-500' : 'bg-[#0284c7]'} ring-4 ring-white`}></span>
+              </div>
+              <div>
+                <div class="text-[12px] font-mono uppercase tracking-[0.14em] text-foreground/55">{s.actor}</div>
+                <div class="mt-0.5 text-[13.5px] font-semibold text-heading">{s.stage}</div>
+              </div>
+              <div class="text-[13px] text-foreground/70 leading-relaxed">{s.body}</div>
+            </div>
+          ))}
+        </div>
+
+        <div class="px-6 py-3 border-t border-[color:var(--border)] bg-[color:var(--surface-1)]/60 flex flex-wrap items-center justify-between gap-2 text-[11.5px] font-mono">
+          <span class="text-muted-foreground">total: 326ms · 7 handoffs · 1 provider call</span>
+          <span class="inline-flex items-center gap-1.5 text-emerald-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            delivered
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCALING STORY · 3 progressive scenarios
+  ============================================================ -->
+  <section class="border-b border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Scaling</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Volume scales by adding mailboxes.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          Not by cranking a few. Each scenario keeps every mailbox at the default cap. When one worker fills with mailboxes, the next worker takes the next batch.
+        </p>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-4 lg:gap-5">
+        {scenarios.map((s) => (
+          <div class={`relative rounded-[14px] bg-white overflow-hidden ${s.featured ? 'ring-2 ring-[#0284c7]/35 shadow-[0_24px_48px_-20px_rgba(2,132,199,0.3)]' : 'ring-1 ring-[color:var(--border)]'}`}>
+            <div class="h-1.5" style={`background: ${s.featured ? '#0284c7' : '#e6ebf2'}`}></div>
+            <div class="p-6">
+              <div class="text-[10.5px] uppercase tracking-[0.18em] font-mono text-muted-foreground">{s.label}</div>
+              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-5 border-b border-[color:var(--border)]">
+                <div>
+                  <div class="text-[22px] font-semibold tracking-[-0.02em] text-heading font-mono">{s.mailboxes}</div>
+                  <div class="mt-0.5 text-[10px] uppercase tracking-[0.16em] font-mono text-muted-foreground">mailboxes</div>
+                </div>
+                <div>
+                  <div class="text-[22px] font-semibold tracking-[-0.02em] text-heading font-mono">{s.workers}</div>
+                  <div class="mt-0.5 text-[10px] uppercase tracking-[0.16em] font-mono text-muted-foreground">workers</div>
+                </div>
+                <div>
+                  <div class={`text-[22px] font-semibold tracking-[-0.02em] font-mono ${s.featured ? 'text-[#0369a1]' : 'text-heading'}`}>{s.daily.toLocaleString()}</div>
+                  <div class="mt-0.5 text-[10px] uppercase tracking-[0.16em] font-mono text-muted-foreground">cold / day</div>
+                </div>
+              </div>
+              <!-- Mailbox dot grid -->
+              <div class="mt-4">
+                <div class="flex flex-wrap gap-1">
+                  {Array.from({ length: Math.min(s.mailboxes, 50) }).map(() => (
+                    <span class={`w-2 h-2 rounded-sm ${s.featured ? 'bg-[#0284c7]' : 'bg-slate-400'}`} style="opacity:0.7"></span>
+                  ))}
+                  {s.mailboxes > 50 && (
+                    <span class="text-[10px] font-mono text-muted-foreground self-center ml-1">+{s.mailboxes - 50}</span>
+                  )}
+                </div>
+              </div>
+              <p class="mt-4 text-[12.5px] text-foreground/65 leading-relaxed">{s.note}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       PROVIDERS · compact
+  ============================================================ -->
+  <section class="border-b border-[color:var(--border)] bg-[color:var(--surface-1)]/40 py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-2xl mb-10">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Providers</div>
+        <h2 class="text-[28px] md:text-[40px] font-semibold tracking-[-0.025em] leading-[1.06] text-heading">
+          Native Gmail. Native Outlook. SMTP for the rest.
+        </h2>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-4">
+        {providers.map((p) => (
+          <div class="rounded-[12px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden">
+            <div class="h-1" style={`background:${p.accent}`}></div>
+            <div class="p-6">
+              <div class="text-[10.5px] font-mono uppercase tracking-[0.18em] text-muted-foreground mb-2">{p.tag}</div>
+              <div class="text-[16px] font-semibold text-heading">{p.name}</div>
+              <p class="mt-2 text-[12.5px] text-foreground/65 leading-relaxed">{p.body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FAQ · grid-rows accordion
+  ============================================================ -->
+  <section class="bg-white py-20 md:py-24">
+    <div class="container-page grid lg:grid-cols-[1fr_1.8fr] gap-12 lg:gap-20 items-start">
+      <div class="lg:sticky lg:top-24" style="align-self: start;">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-muted-foreground mb-3">FAQ</div>
+        <h2 class="text-[28px] md:text-[36px] font-semibold tracking-[-0.025em] leading-[1.08] text-heading">
+          Four engine questions.
+        </h2>
+      </div>
+      <div class="divide-y divide-[color:var(--border)]" data-faq>
+        {faq.map(([q, a]) => (
+          <div class="faq-row py-2">
+            <button type="button" class="faq-trigger group w-full flex items-start justify-between gap-4 py-3 text-left" aria-expanded="false">
+              <span class="text-[15.5px] font-medium text-heading group-hover:text-[#0369a1] transition-colors">{q}</span>
+              <span class="faq-icon shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-[color:var(--surface-1)] ring-1 ring-[color:var(--border)] text-foreground/60 transition-transform duration-300 ease-out">
+                <Icon name="plus" size={12} />
+              </span>
+            </button>
+            <div class="faq-panel grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out">
+              <div class="overflow-hidden">
+                <p class="pb-4 pr-12 text-[14px] text-foreground/75 leading-relaxed max-w-2xl">{a}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <script is:inline>
+        (function () {
+          const faq = document.querySelector('[data-faq]');
+          if (!faq) return;
+          faq.querySelectorAll('.faq-trigger').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              const row   = btn.closest('.faq-row');
+              const panel = row.querySelector('.faq-panel');
+              const icon  = btn.querySelector('.faq-icon');
+              const open  = btn.getAttribute('aria-expanded') === 'true';
+              btn.setAttribute('aria-expanded', String(!open));
+              panel.style.gridTemplateRows = open ? '0fr' : '1fr';
+              if (icon) icon.style.transform = open ? 'rotate(0deg)' : 'rotate(45deg)';
+            });
+          });
+        })();
+      </script>
+    </div>
+  </section>
+
+  <PillarPosts
+    title="Sending, in more depth"
+    items={[
+      { kicker: 'Limits', href: '/blog/how-many-cold-emails-per-day-per-mailbox/', title: 'How many cold emails can you actually send per day?' },
+      { kicker: 'Planning', href: '/blog/how-many-mailboxes-and-domains-cold-email/', title: 'How many mailboxes and domains do you need?' },
+      { kicker: 'Budgets', href: '/blog/mailbox-budgets-not-server-settings/', title: 'Your send limit is a mailbox budget, not a server setting' },
+    ]}
+  />
+
+  <CTA
+    title="Connect a mailbox. Send your first campaign today."
+    description="OAuth in 30 seconds. Worker assignment is automatic."
+    primaryLabel="Start free"
+    primaryHref="https://app.dakiyamail.com/register"
+  />
+</Layout>

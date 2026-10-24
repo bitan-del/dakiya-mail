@@ -1,0 +1,75 @@
+import type MiniCampaign from "../campaigns/MiniCampaign";
+import type MiniCategory from "./MiniCategory";
+
+// LeadStatus mirrors models.ContactCampaignProgress.Status, a contact's
+// processing state inside a single campaign. "completed" = every step sent, no
+// reply (done); "active" = some but not all steps sent (still processing);
+// "failed" = the mailbox could not send a step after every retry;
+// "undeliverable" = address verification refused it, so the campaign skips it;
+// "sunset" = the campaign's sunset policy skips it (no engagement after N emails).
+export type LeadStatus =
+    | "pending"
+    | "active"
+    | "completed"
+    | "replied"
+    | "bounced"
+    | "failed"
+    | "unsubscribed"
+    | "undeliverable"
+    | "sunset";
+
+// LeadEngagement mirrors models.SearchContacts.Engagement. "opened" is a human
+// open (machine opens never count); the not_* forms match leads that were sent
+// at least one step, so a queued lead is neither opened nor not opened.
+export type LeadEngagement =
+    | "opened"
+    | "not_opened"
+    | "clicked"
+    | "not_clicked"
+    | "replied"
+    | "not_replied"
+    | "bounced";
+
+// ContactCampaignProgress is set only on contacts returned by a single-campaign
+// (Leads view) search; it summarises how far the lead is through the campaign.
+export interface ContactCampaignProgress {
+    status: LeadStatus;
+    sent: number;
+    // Human opens; automated fetches (Apple MPP prefetch, UA-less clients)
+    // are counted apart in machine_opened.
+    opened: number;
+    machine_opened: number;
+    clicked: number;
+    replied: number;
+    bounced: number;
+    last_activity_at?: string | null;
+    // Label of the step the lead is on now (latest step sent). Empty when the
+    // lead hasn't been contacted yet.
+    current_step?: string;
+    // The worker's reason for the last failed send; set only when status is
+    // "failed".
+    failure_reason?: string;
+}
+
+export default interface Contact {
+    id: string;
+
+    first_name: string;
+    last_name: string;
+    email: string;
+    company: string;
+    phone: string;
+
+    custom_fields: Record<string, string>;
+
+    subscribed: boolean;
+    campaigns: MiniCampaign[];
+    categories: MiniCategory[];
+
+    // Present only in the campaign Leads view (single-campaign search). Drives
+    // the per-lead processing-state column.
+    campaign_lead?: ContactCampaignProgress | null;
+
+    updated_at: Date;
+    created_at: Date;
+}

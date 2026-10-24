@@ -1,0 +1,349 @@
+// Package bootstrap provisions the first owner of a fresh install.
+//
+// Without it the only documented path was: register through the public form,
+// read the emailed code out of a mail catcher, then run a psql UPDATE from the
+// host. That is three manual steps, it depends on working mail, and the window
+// between "instance is reachable" and "an admin exists" is claimable by anyone
+// who finds the URL first, which is a recurring CVE class in self-hosted
+// software.
+//
+// Two mechanisms, both standard in the field:
+//
+//   - DAKIYA_BOOTSTRAP_EMAIL plus DAKIYA_BOOTSTRAP_PASSWORD_HASH, read only
+//     while the users table is empty (authentik, n8n and NocoDB all do this).
+//   - Otherwise a single-use setup token printed once to the logs, which is
+//     Zulip's realm-creation link, invalidated the moment it is used.
+package bootstrap
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"net/mail"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/bitan-del/dakiya-mail/internal/app/organization"
+	"github.com/bitan-del/dakiya-mail/internal/app/trial"
+	"github.com/bitan-del/dakiya-mail/internal/app/user"
+	"github.com/bitan-del/dakiya-mail/internal/config"
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/cache"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/argon2"
+	"github.com/bitan-del/dakiya-mail/internal/pkg/crypt"
+	"github.com/bitan-del/dakiya-mail/internal/repository"
+	"github.com/getsentry/sentry-go"
+)
+
+// SetupTokenTTL bounds the window in which the printed token can be claimed.
+const SetupTokenTTL = 24 * time.Hour
+
+const setupTokenKey = "bootstrap:setup_token"
+
+type Service struct {
+	users     repository.UserRepository
+	userSvc   user.UserService
+	orgSvc    organization.OrganizationService
+	trialSvc  trial.TrialService
+	adminRepo repository.AdminRepository
+	cache     *cache.Cache
+}
+
+func NewService(
+	users repository.UserRepository,
+	userSvc user.UserService,
+	orgSvc organization.OrganizationService,
+	trialSvc trial.TrialService,
+	adminRepo repository.AdminRepository,
+	cache *cache.Cache,
+) *Service {
+	return &Service{
+		users:     users,
+		userSvc:   userSvc,
+		orgSvc:    orgSvc,
+		trialSvc:  trialSvc,
+		adminRepo: adminRepo,
+		cache:     cache,
+	}
+}
+
+// Run is called once at boot, after migrations. It is a no-op on an instance
+// that already has users, so it is safe on every restart.
+func (s *Service) Run(ctx context.Context) error {
+	empty, err := s.users.IsEmpty(ctx)
+	if err != nil {
+		return fmt.Errorf("bootstrap: checking for existing users: %w", err)
+	}
+	if !empty {
+		// Say why no claim link appeared. Staying silent here is what turns a
+		// re-used database into an unexplained 403 on the signup form.
+		s.explainClaimed(ctx)
+		return nil
+	}
+
+	email := strings.TrimSpace(os.Getenv("DAKIYA_BOOTSTRAP_EMAIL"))
+	if email != "" {
+		return s.createOwner(ctx, email)
+	}
+
+	return s.printSetupToken(ctx)
+}
+
+func (s *Service) createOwner(ctx context.Context, address string) error {
+	parsed, err := mail.ParseAddress(address)
+	if err != nil {
+		return fmt.Errorf("bootstrap: DAKIYA_BOOTSTRAP_EMAIL is not a valid address: %w", err)
+	}
+
+	hash := strings.TrimSpace(os.Getenv("DAKIYA_BOOTSTRAP_PASSWORD_HASH"))
+	if hash == "" {
+		// A plaintext password is accepted as a convenience, with the same
+		// warning authentik gives: environment variables leak through process
+		// listings, orchestrator APIs and crash dumps.
+		plain := os.Getenv("DAKIYA_BOOTSTRAP_PASSWORD")
+		if plain == "" {
+			return fmt.Errorf("bootstrap: DAKIYA_BOOTSTRAP_EMAIL is set but neither DAKIYA_BOOTSTRAP_PASSWORD_HASH nor DAKIYA_BOOTSTRAP_PASSWORD is")
+		}
+		log.Printf("Warning: DAKIYA_BOOTSTRAP_PASSWORD is a plaintext password in an environment variable. Prefer DAKIYA_BOOTSTRAP_PASSWORD_HASH.")
+		hashed, herr := argon2.Hash(plain)
+		if herr != nil {
+			return fmt.Errorf("bootstrap: hashing the password: %w", herr)
+		}
+		hash = hashed
+	}
+
+	u, uerr := s.users.CreateUser(ctx, parsed, hash)
+	if uerr != nil {
+		return fmt.Errorf("bootstrap: creating the owner: %w", uerr)
+	}
+	if err := s.userSvc.SaveUser(ctx, u); err != nil {
+		return fmt.Errorf("bootstrap: saving the owner: %w", err)
+	}
+
+	orgName := strings.TrimSpace(os.Getenv("DAKIYA_BOOTSTRAP_ORG"))
+	if orgName == "" {
+		orgName = defaultOrgName(u.FirstName)
+	}
+	org, orgErr := s.orgSvc.Create(ctx, u.ID, orgName)
+	if orgErr != nil {
+		return fmt.Errorf("bootstrap: creating the organization: %w", orgErr)
+	}
+	if s.trialSvc != nil {
+		_ = s.trialSvc.StartFreeTrialWithOrg(ctx, u.ID, org.ID)
+	}
+
+	// The bootstrap account is the platform operator, so it gets full admin.
+	// This is the only path that grants admin without an existing admin.
+	if err := s.adminRepo.GrantBootstrapAdmin(ctx, u.ID, uint32(models.AllAdminPermissions)); err != nil {
+		return fmt.Errorf("bootstrap: granting admin: %w", err)
+	}
+
+	log.Printf("Bootstrap: created owner %s with full admin permissions and organization %q.", parsed.Address, orgName)
+	return nil
+}
+
+// IssueSetupLink mints a single-use claim link for the first account and
+// returns it. Only its hash is stored, so reading the database does not yield a
+// usable token, and claiming it deletes the key. Minting again replaces any
+// outstanding token, so an old link stops working.
+//
+// It refuses on a claimed instance: a second owner must never be mintable
+// without an existing account.
+func (s *Service) IssueSetupLink(ctx context.Context) (string, error) {
+	if s.cache == nil {
+		return "", fmt.Errorf("bootstrap: no cache is configured, so a setup token cannot be stored (check REDIS)")
+	}
+
+	empty, err := s.users.IsEmpty(ctx)
+	if err != nil {
+		return "", fmt.Errorf("bootstrap: checking for existing users: %w", err)
+	}
+	if !empty {
+		return "", fmt.Errorf("bootstrap: this instance already has accounts, so no setup link is issued. Add an account with `dakiyactl user create --email you@example.com --admin`")
+	}
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(buf)
+
+	if err := s.cache.SetEx(ctx, setupTokenKey, hashToken(token), SetupTokenTTL).Err(); err != nil {
+		return "", fmt.Errorf("bootstrap: storing the setup token: %w", err)
+	}
+
+	return fmt.Sprintf("%s/setup?token=%s", config.AppBaseURL(), token), nil
+}
+
+// printSetupToken mints the claim link at boot and prints it once.
+func (s *Service) printSetupToken(ctx context.Context) error {
+	if s.cache == nil {
+		// The worst possible silence: without a cache the instance can neither
+		// be claimed nor registered against, and nothing else says so.
+		log.Printf("Bootstrap: no accounts exist and no cache is configured, so no setup link can be issued. Check REDIS, then run `dakiyactl setup-link`.")
+		return nil
+	}
+
+	url, err := s.IssueSetupLink(ctx)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("\n"+
+		"┌──────────────────────────────────────────────────────────────────────\n"+
+		"│ No accounts exist yet. Claim this instance with the link below.\n"+
+		"│\n"+
+		"│   %s\n"+
+		"│\n"+
+		"│ Single use, valid for %s. It is printed only once, and only its hash\n"+
+		"│ is stored.\n"+
+		"│\n"+
+		"│ Lost it? Print a new one: dakiyactl setup-link\n"+
+		"│ Unattended instead? Set DAKIYA_BOOTSTRAP_EMAIL and\n"+
+		"│ DAKIYA_BOOTSTRAP_PASSWORD_HASH before the first start.\n"+
+		"└──────────────────────────────────────────────────────────────────────\n",
+		url, SetupTokenTTL)
+
+	return nil
+}
+
+// explainClaimed logs why a claim link was not issued, and what to run
+// instead. Best effort: never blocks boot.
+func (s *Service) explainClaimed(ctx context.Context) {
+	count, err := s.users.CountUsers(ctx)
+	if err != nil {
+		return
+	}
+
+	registration := config.LoadAuthPolicy(false).Registration
+	advice := "Registration is open, so you can create an account from the sign-in page."
+	if registration != config.RegistrationOpen {
+		advice = fmt.Sprintf("Registration is %s (DISABLE_REGISTRATION), so the signup form will refuse\n"+
+			"│ new accounts. Add one with:\n"+
+			"│\n"+
+			"│   dakiyactl user create --email you@example.com --admin", registration)
+	}
+
+	log.Printf("\n"+
+		"┌──────────────────────────────────────────────────────────────────────\n"+
+		"│ First run: skipped. This instance already has %d account(s), so no\n"+
+		"│ setup link is issued.\n"+
+		"│\n"+
+		"│ %s\n"+
+		"│\n"+
+		"│ See where you stand: dakiyactl status\n"+
+		"└──────────────────────────────────────────────────────────────────────\n",
+		count, advice)
+}
+
+// Required reports whether this instance still needs to be claimed. Drives the
+// setup page and the `setup_required` flag on GET /auth/config.
+func (s *Service) Required(ctx context.Context) bool {
+	empty, err := s.users.IsEmpty(ctx)
+	return err == nil && empty
+}
+
+// Claim exchanges the printed setup token for the owner account.
+//
+// The token is consumed before the account is created, not after: two requests
+// racing with the same token must not both succeed, and Redis GETDEL is the
+// atomic step that decides which one wins.
+func (s *Service) Claim(ctx context.Context, token, address, password, firstName, lastName string) (*models.User, *errx.Error) {
+	if s.cache == nil || token == "" {
+		return nil, errx.ErrSetupToken
+	}
+
+	parsed, perr := mail.ParseAddress(address)
+	if perr != nil {
+		return nil, errx.ErrEmail
+	}
+	if !crypt.ValidatePassword(password) {
+		return nil, errx.ErrPassword
+	}
+
+	// Refuse on an instance that already has accounts, even with a valid
+	// token: a stale link out of an old log must never mint a second owner.
+	empty, eerr := s.users.IsEmpty(ctx)
+	if eerr != nil {
+		sentry.CaptureException(eerr)
+		return nil, errx.InternalError()
+	}
+	if !empty {
+		return nil, errx.ErrSetupComplete
+	}
+
+	// Read the remaining lifetime before consuming the key: restoring a losing
+	// token with a fresh TTL would let anyone hold the claim window open
+	// indefinitely by posting a wrong token once a day, and /auth/setup is
+	// public.
+	remaining, _ := s.cache.PTTL(ctx, setupTokenKey).Result()
+
+	stored, gerr := s.cache.GetDel(ctx, setupTokenKey).Result()
+	if gerr != nil || stored == "" || stored != hashToken(token) {
+		// Put a valid-but-losing token back only when the value did not match,
+		// so a typo does not burn the real one, and only for the time it had
+		// left.
+		if gerr == nil && stored != "" && stored != hashToken(token) && remaining > 0 {
+			_ = s.cache.SetEx(ctx, setupTokenKey, stored, remaining).Err()
+		}
+		return nil, errx.ErrSetupToken
+	}
+
+	hash, herr := argon2.Hash(password)
+	if herr != nil {
+		sentry.CaptureException(herr)
+		return nil, errx.InternalError()
+	}
+
+	u, uerr := s.users.CreateUser(ctx, parsed, hash)
+	if uerr != nil {
+		sentry.CaptureException(uerr)
+		return nil, errx.InternalError()
+	}
+	if firstName != "" {
+		if err := s.users.UpdateProfile(ctx, u.ID, firstName, lastName); err == nil {
+			u.FirstName, u.LastName = firstName, lastName
+		}
+	}
+	if err := s.userSvc.SaveUser(ctx, u); err != nil {
+		return nil, err
+	}
+
+	orgName := strings.TrimSpace(os.Getenv("DAKIYA_BOOTSTRAP_ORG"))
+	if orgName == "" {
+		orgName = defaultOrgName(u.FirstName)
+	}
+	org, orgErr := s.orgSvc.Create(ctx, u.ID, orgName)
+	if orgErr != nil {
+		sentry.CaptureException(orgErr)
+		return nil, errx.InternalError()
+	}
+	if s.trialSvc != nil {
+		_ = s.trialSvc.StartFreeTrialWithOrg(ctx, u.ID, org.ID)
+	}
+
+	if err := s.adminRepo.GrantBootstrapAdmin(ctx, u.ID, uint32(models.AllAdminPermissions)); err != nil {
+		sentry.CaptureException(err)
+		return nil, errx.InternalError()
+	}
+
+	log.Printf("Setup: %s claimed this instance and is now its owner and platform admin.", parsed.Address)
+	return u, nil
+}
+
+func defaultOrgName(firstName string) string {
+	if firstName == "" {
+		return "My Organization"
+	}
+	return firstName + "'s Organization"
+}
+
+func hashToken(token string) string {
+	// argon2 is overkill for a 256-bit random token, so the shared SHA-256
+	// helper is the right cost here.
+	return crypt.SHA256(token)
+}

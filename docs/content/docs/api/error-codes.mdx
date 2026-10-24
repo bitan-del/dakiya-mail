@@ -1,0 +1,425 @@
+---
+title: Error codes
+description: Reference for all API error codes and their meanings.
+---
+
+The Dakiya Mail API uses standard HTTP status codes and returns structured error responses in JSON format.
+
+## Error response format
+
+All errors follow this structure:
+
+```json
+{
+  "error": "Error Type",
+  "message": "Human-readable description of what went wrong.",
+  "code": "machine_readable_code",
+  "request_id": "req_or_uuid_for_support"
+}
+```
+
+`error` and `message` are for people. Client logic should use `code`, HTTP status, and endpoint-specific fields such as `retry_after`. Include `request_id` when contacting support.
+
+## HTTP status codes
+
+### Client errors (4xx)
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 400 | Bad Request | Invalid request syntax or parameters |
+| 401 | Unauthorized | Missing or invalid authentication |
+| 402 | Payment Required | Out of AI credits (`insufficient_credits`) |
+| 403 | Forbidden | Authenticated but lacks permission |
+| 404 | Not Found | Resource doesn't exist |
+| 409 | Conflict | Resource already exists |
+| 422 | Unprocessable | Validation failed |
+| 429 | Too Many Requests | Rate limit or AI usage cap exceeded (`rate_limit_exceeded`, `usage_cap_exceeded`) |
+
+### Server errors (5xx)
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 500 | Internal Server Error | Unexpected server error |
+| 501 | Not Implemented | Feature not available |
+| 503 | Service Unavailable | Service temporarily down |
+
+## Error details
+
+### 400 Bad Request
+
+Returned when the request cannot be processed due to invalid syntax.
+
+**Common causes:**
+- Invalid JSON in request body
+- Missing required fields
+- Invalid field types
+- Values outside allowed ranges
+
+**Example:**
+
+```json
+{
+  "error": "Bad Request",
+  "message": "invalid request body",
+  "code": "bad_request",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Check that your JSON is valid
+- Verify all required fields are present
+- Ensure field values match expected types
+
+**Specific 400 codes:**
+
+| `code` | Meaning |
+|--------|---------|
+| `invalid_lead_status` | `POST /contacts/search` or `POST /contacts/export` was given a `lead_status` that is not one of the documented values |
+| `invalid_engagement` | `POST /contacts/search` or `POST /contacts/export` was given an `engagement` that is not one of the documented values |
+| `lead_filter_requires_campaign` | `lead_status` or `engagement` was set without exactly one `campaign_ids` entry; both filters describe a contact inside one campaign |
+| `no_organization` | The request needs a workspace and the caller has none selected. Every entitlement, limit and suppression rule is scoped to a workspace, so a write that would run unscoped is refused rather than run without those checks. API keys always carry their workspace; a dashboard session picks one at sign-in, so this normally means the session predates the workspace being chosen. Select a workspace and retry |
+
+### 401 Unauthorized
+
+Returned when authentication fails.
+
+**Common causes:**
+- Missing `Authorization` header
+- Invalid API key format
+- Expired API key
+- Revoked API key
+
+**Example:**
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Token not found.",
+  "code": "unauthorized",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Include the `Authorization: Bearer dakiya_...` header
+- Verify your API key is correct
+- Check if your key has expired or been revoked
+- Generate a new key if necessary
+
+Two `401` variants are not about API keys at all. `setup_token_invalid` is returned by the first-run claim endpoint when the setup link is invalid, already used or expired. Print a new one with `dakiyactl setup-link`, described in [first run](/development/first-run/).
+
+`sso_wrong_browser` is returned by `POST /auth/sso/exchange` when the handoff code is collected without the binding secret that `POST /auth/<provider>/begin` handed the browser that started the sign-in. The handoff is deliberately non-transferable: a sign-in link that was forwarded, or opened in another browser, cannot sign the recipient in. Start the sign-in again in the browser you want to use.
+
+### 402 Payment Required
+
+Returned when an AI action is requested but the organization is out of credits. The response carries the stable code `insufficient_credits`.
+
+```json
+{
+  "error": "Payment Required",
+  "message": "You're out of AI credits. Add more to keep using the assistant.",
+  "code": "insufficient_credits",
+  "request_id": "req_..."
+}
+```
+
+**How to fix:**
+- Wait for the monthly allowance to reset, or buy a top-up pack (see [AI credits](/guides/ai-credits/))
+- Related: a `429` with code `usage_cap_exceeded` means a short-term AI usage cap was hit; retry later
+
+### 403 Forbidden
+
+Returned when authenticated but lacking necessary permissions.
+
+**Common causes:**
+- API key lacks required permission
+- Request IP not in allowlist
+- Email account not in allowlist
+- Organization access restricted
+
+**Example:**
+
+```json
+{
+  "error": "Forbidden",
+  "message": "You don't have access to this feature.",
+  "code": "forbidden",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Check your API key's permissions
+- Verify IP restrictions if configured
+- Request additional permissions if needed
+
+#### Registration and invitation refusals
+
+Signup and invitation refusals carry their own `code`, so a client can branch on the specific condition instead of matching on text. They describe the deployment's policy and never say anything about whether a given address exists.
+
+| `code` | Status | Meaning |
+|--------|--------|---------|
+| `registration_invite_only` | 403 | The server runs `DISABLE_REGISTRATION=invite_only`. Creating an account requires an invitation link, which carries the token that permits the signup |
+| `registration_closed` | 403 | The server runs `DISABLE_REGISTRATION=true`. Signups are off and invitations do not override it |
+| `invitation_invalid` | 403 | The invitation is expired, cancelled, already used, or was issued for a different email address |
+| `setup_already_complete` | 403 | The first-run claim was attempted on an instance that already has an account |
+
+```json
+{
+  "error": "Forbidden",
+  "message": "This server is invite only. Ask an administrator to invite you, then open the link in the invitation to create your account.",
+  "code": "registration_invite_only",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:** on a self-hosted deployment these are configuration, not faults. See [accounts and access](/development/accounts-and-access/#registration-modes).
+
+### 404 Not Found
+
+Returned when the requested resource doesn't exist.
+
+**Common causes:**
+- Invalid resource ID
+- Resource was deleted
+- Resource belongs to different organization
+- Typo in endpoint URL
+
+**Example:**
+
+```json
+{
+  "error": "Not Found",
+  "message": "Resource not found.",
+  "code": "not_found",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Verify the resource ID is correct
+- Check that the resource hasn't been deleted
+- Ensure you're using the correct endpoint
+
+### 409 Conflict
+
+Returned when the request conflicts with existing data.
+
+**Common causes:**
+- Trying to create a resource that already exists
+- Duplicate unique values
+
+**Example:**
+
+```json
+{
+  "error": "Conflict",
+  "message": "resource already exists",
+  "code": "conflict",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+### 422 Unprocessable
+
+Returned when validation fails on the request data.
+
+**Common causes:**
+- Invalid email format
+- String exceeds maximum length
+- Number outside valid range
+- Invalid enum value
+
+**Example:**
+
+```json
+{
+  "error": "Unprocessable",
+  "message": "validation failed",
+  "code": "unprocessable",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when an unexpected error occurs on the server.
+
+**Example:**
+
+```json
+{
+  "error": "Internal Server Error",
+  "message": "Something went wrong.",
+  "code": "internal_error",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Retry the request after a short delay
+- If persistent, contact support with request details
+
+One `internal_error` variant is worth distinguishing. When an authentication endpoint cannot send its email, the message names that specifically rather than reporting a generic fault:
+
+```json
+{
+  "error": "Internal Server Error",
+  "message": "We couldn't send the email. If you administer this server, check the mail transport configuration.",
+  "code": "internal_error",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+On a self-hosted deployment that means `MAIL_TRANSPORT` and the `SMTP_` variables. See [self-hosting](/development/deployment-guide/).
+
+### 503 Service Unavailable
+
+Returned when the service is temporarily unavailable.
+
+**Example:**
+
+```json
+{
+  "error": "Service Unavailable",
+  "message": "service unavailable",
+  "code": "service_unavailable",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Wait and retry with exponential backoff
+- Check status page for incidents
+
+#### `mailbox_provider_not_configured`
+
+A `503` whose `code` is `mailbox_provider_not_configured` is not transient and retrying will not help. It means the deployment has no OAuth client for the mailbox provider the request asked for, which only happens on a self-hosted install.
+
+```json
+{
+  "error": "Service Unavailable",
+  "message": "Gmail is not configured on this deployment. Set BOX_GOOGLE_CLIENT_ID and BOX_GOOGLE_CLIENT_SECRET in your .env, then restart.",
+  "code": "mailbox_provider_not_configured",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Set `BOX_GOOGLE_CLIENT_ID` and `BOX_GOOGLE_CLIENT_SECRET`, or `BOX_OUTLOOK_CLIENT_ID` and `BOX_OUTLOOK_CLIENT_SECRET`, in the `.env` at your install root, then restart
+- Or connect the mailbox over SMTP and IMAP instead, which needs no configuration
+- Full walkthrough: [connect mailboxes](/development/deployment-guide/#connect-mailboxes)
+
+#### `mailbox_worker_unreachable`
+
+A `503` whose `code` is `mailbox_worker_unreachable` comes from `DELETE /emails/{id}`. Disconnecting a mailbox has to reach the machine that syncs it before the record goes, because once the record is gone nothing can tell that machine to stop. When the instruction cannot be delivered, nothing is removed and the mailbox is left exactly as it was.
+
+```json
+{
+  "error": "Service Unavailable",
+  "message": "This mailbox could not be disconnected right now because the machine syncing it could not be reached. Nothing was removed, so try again in a moment.",
+  "code": "mailbox_worker_unreachable",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+**How to fix:**
+- Retry the delete. It is safe to repeat: a mailbox that is already gone returns `404`, and one that is still there is untouched
+
+### Gmail Postmaster codes
+
+The [Gmail Postmaster Tools](/guides/deliverability/#gmail-postmaster-tools) endpoints under `/deliverability/postmaster` answer with their own `code` for each condition a client is expected to handle.
+
+| `code` | Status | Meaning |
+|--------|--------|---------|
+| `postmaster_invalid_days` | 400 | `days` is not a whole number from `1` to `120` |
+| `postmaster_instance_scoped` | 403 | Connecting or removing Google credentials was attempted on a hosted deployment. The credentials are shared by the whole instance, so only a self-hosted instance can change them |
+| `postmaster_domain_not_found` | 404 | `domain` is not a sending domain of this workspace |
+| `postmaster_credentials_invalid` | 422 | A credential field is empty, or Google refused the client ID, secret or refresh token |
+| `postmaster_encryption_unconfigured` | 501 | `CREDENTIALS_ENCRYPTION_KEY` is not set, so credentials cannot be stored encrypted. Set it and restart |
+| `postmaster_unreachable` | 503 | Google could not be reached to check the credentials. Retry shortly; nothing was stored |
+
+## Error handling best practices
+
+### Implement retry logic
+
+For transient errors (5xx, 429), implement exponential backoff:
+
+```javascript
+async function requestWithRetry(url, options, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      if (response.ok) {
+        return response.json();
+      }
+
+      // Don't retry client errors (4xx) except rate limits
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+        throw new Error(`Client error: ${response.status}`);
+      }
+
+      // Retry server errors and rate limits
+      if (attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    } catch (error) {
+      if (attempt === maxRetries - 1) throw error;
+    }
+  }
+}
+```
+
+### Parse error responses
+
+Always parse and handle error responses:
+
+```javascript
+async function apiRequest(url, options) {
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new ApiError(response.status, error.error, error.message);
+  }
+
+  return response.json();
+}
+
+class ApiError extends Error {
+  constructor(status, type, message) {
+    super(message);
+    this.status = status;
+    this.type = type;
+  }
+}
+```
+
+## Rate limiting
+
+When you exceed rate limits, you'll receive:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+```
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded. Please retry after 60 seconds.",
+  "code": "rate_limit_exceeded",
+  "request_id": "4bbbd1b2-8f86-47dd-8a7f-9476501ad20e"
+}
+```
+
+Use the `Retry-After` header to determine when to retry.
+
+## See also
+
+- [Authentication](/api/authentication/)
+- [Endpoints](/api/endpoints/)

@@ -1,0 +1,129 @@
+# Dev mode override. Brings all stateful build steps inside long-
+# running containers with bind-mounted source so a save in the host
+# triggers an in-container recompile/restart — no docker image
+# rebuild, no container recreate.
+#
+# Activated via `make app` (or `docker compose -f docker-compose.yml
+# -f docker-compose.dev.yml up`).
+#
+# Covers:
+#   - backend / consumer / worker-shared-1  (Go via air)
+#   - tracking                              (Rust via cargo-watch)
+#   - realtime                              (Elixir via mix phx.server)
+#
+# The default `docker-compose.yml` keeps the production-style images
+# untouched; `make up` still uses those.
+#
+# Caching strategy: each language's build cache lives on a named
+# volume whose `name:` skips the per-project prefix, so worktrees
+# point at the same physical volumes on the host and starts after the
+# first are seconds, not minutes.
+
+services:
+  # ─── Go services (backend / consumer / worker) ────────────────────────
+  backend:
+    image: dakiya-go-dev
+    build:
+      context: .
+      dockerfile: deploy/docker/go-dev.Dockerfile
+    environment:
+      DAKIYA_CMD: backend
+    volumes:
+      - .:/app
+      - dakiya_gomodcache:/go/pkg/mod
+      - dakiya_gocache:/root/.cache/go-build
+    # Relax the prod healthcheck instead of disabling it: dev needs to
+    # keep one because web, seed and the base consumer all depend on
+    # backend with `condition: service_healthy`, and compose refuses to
+    # bring up a service whose service_healthy target has no
+    # healthcheck.
+    #
+    # The bigger start_period gives air time to do a cold first compile
+    # (Go build cache empty in a fresh worktree → 60-90s isn't unusual).
+    # depends_on only gates initial startup, so the brief unhealthy
+    # blips on each subsequent rebuild don't bounce dependents.
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 180s
+
+  consumer:
+    image: dakiya-go-dev
+    build:
+      context: .
+      dockerfile: deploy/docker/go-dev.Dockerfile
+    environment:
+      DAKIYA_CMD: consumer
+    volumes:
+      - .:/app
+      - dakiya_gomodcache:/go/pkg/mod
+      - dakiya_gocache:/root/.cache/go-build
+    depends_on:
+      backend:
+        condition: service_started
+      nats:
+        condition: service_healthy
+
+  worker:
+    image: dakiya-go-dev
+    build:
+      context: .
+      dockerfile: deploy/docker/go-dev.Dockerfile
+    environment:
+      DAKIYA_CMD: worker
+    volumes:
+      - .:/app
+      - dakiya_gomodcache:/go/pkg/mod
+      - dakiya_gocache:/root/.cache/go-build
+
+  # ─── Rust (tracking) ──────────────────────────────────────────────────
+  tracking:
+    image: dakiya-rust-dev
+    build:
+      context: .
+      dockerfile: deploy/docker/rust-dev.Dockerfile
+    volumes:
+      - ./tracking:/app
+      - dakiya_cargo_home:/usr/local/cargo
+      # Build artifacts default to ./tracking/target inside the bind
+      # mount. Redirecting to a named volume keeps the host tree clean
+      # and lets the artifact cache survive container recreates.
+      - dakiya_cargo_target:/app/target
+    healthcheck:
+      disable: true
+
+  # ─── Elixir (realtime) ────────────────────────────────────────────────
+  realtime:
+    image: dakiya-elixir-dev
+    build:
+      context: .
+      dockerfile: deploy/docker/elixir-dev.Dockerfile
+    environment:
+      # Phoenix uses MIX_ENV=dev for code reload; PHX_HOST/PORT/etc
+      # from the base file still apply.
+      MIX_ENV: dev
+    volumes:
+      - ./realtime:/app
+      - dakiya_mix_deps:/app/deps
+      - dakiya_mix_build:/app/_build
+    healthcheck:
+      disable: true
+
+volumes:
+  # `name:` overrides the default `<project>_<volume>` prefixing. Every
+  # worktree that brings up this override mounts the same physical
+  # volume, so cache populated in one worktree is warm in every other.
+  dakiya_gomodcache:
+    name: dakiya_gomodcache
+  dakiya_gocache:
+    name: dakiya_gocache
+  dakiya_cargo_home:
+    name: dakiya_cargo_home
+  dakiya_cargo_target:
+    name: dakiya_cargo_target
+  dakiya_mix_deps:
+    name: dakiya_mix_deps
+  dakiya_mix_build:
+    name: dakiya_mix_build

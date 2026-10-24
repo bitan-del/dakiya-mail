@@ -1,0 +1,261 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/mail"
+	"strings"
+	"time"
+
+	"github.com/bitan-del/dakiya-mail/internal/errx"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/db"
+	"github.com/bitan-del/dakiya-mail/internal/infrastructure/kms"
+	"github.com/bitan-del/dakiya-mail/internal/models"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+type UserRepository interface {
+	// RecordSignupMetadata stores where a signup came from and what its address
+	// scored, for later correlation. Never used for authentication.
+	RecordSignupMetadata(ctx context.Context, userID uuid.UUID, ip, userAgent string, emailRisk int, normalizedEmail string) error
+
+	CreateUser(ctx context.Context, email *mail.Address, password string) (*models.User, error)
+	GetUser(ctx context.Context, id uuid.UUID) (*models.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
+	SetFreeTrialUsed(ctx context.Context, userID uuid.UUID) error
+	UpdateOnboarding(ctx context.Context, userID uuid.UUID, firstName, lastName, referralSource, role, teamSize string) error
+	UpdateProfile(ctx context.Context, userID uuid.UUID, firstName, lastName string) error
+	UpdateAvatar(ctx context.Context, userID uuid.UUID, avatarURL *string) error
+
+	// GetBanState returns the user's ban_scope bitmask (0 = not
+	// banned). Used by middleware to enforce BanScopeLogin etc.
+	// without re-fetching the full user row.
+	GetBanState(ctx context.Context, userID uuid.UUID) (scope uint32, err error)
+
+	// GetUndoSendSeconds returns the user's undo-send window without
+	// fetching the full user row (hot path: every instant send).
+	GetUndoSendSeconds(ctx context.Context, userID uuid.UUID) (int, error)
+	SetUndoSendSeconds(ctx context.Context, userID uuid.UUID, seconds int) error
+
+	// IsEmpty reports whether the instance has no users at all. Drives the
+	// first-launch exemption for DISABLE_REGISTRATION and the bootstrap owner,
+	// both of which must only apply to a brand new install.
+	IsEmpty(ctx context.Context) (bool, error)
+
+	// CountUsers is the operator-facing count, for boot diagnostics and the
+	// CLI. IsEmpty stays the hot-path check.
+	CountUsers(ctx context.Context) (int, error)
+}
+
+type userRepository struct {
+	DB  *db.DB
+	kms kms.Provider
+}
+
+func NewUserRepostory(db *db.DB, kms kms.Provider) UserRepository {
+	return &userRepository{
+		DB:  db,
+		kms: kms,
+	}
+}
+
+func (r *userRepository) CreateUser(ctx context.Context, email *mail.Address, passwordHash string) (*models.User, error) {
+	id := uuid.New()
+
+	var firstName string
+
+	nameSplit := strings.SplitN(email.Address, "@", 2)
+	if len(nameSplit) < 2 {
+		firstName = "Unknown"
+	} else {
+		firstName = nameSplit[0]
+	}
+
+	var lastName string
+	now := time.Now()
+
+	const q = `
+		INSERT INTO users (
+			id, email, password_hash,
+			first_name, last_name,
+			created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3,
+			$4, $5,
+			$6, $6
+		)
+	`
+
+	var params = []any{
+		id, email.Address, passwordHash,
+		firstName, lastName,
+		now,
+	}
+
+	_, err := r.DB.Exec(
+		ctx,
+		q,
+		params...)
+	if err != nil {
+		db.CaptureError(err, q, nil, "exec")
+		return nil, err
+	}
+
+	return &models.User{
+		ID: id,
+
+		FirstName: firstName,
+		LastName:  lastName,
+		Email:     email.Address,
+		Roles:     make([]uuid.UUID, 0),
+
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+func (r *userRepository) getUser(ctx context.Context, key string, value any) (*models.User, error) {
+	var u models.User
+
+	q := fmt.Sprintf(
+		`SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.referral_source, u.onboarding_completed_at,
+		   u.max_organizations, u.free_trial_used, u.admin_permissions,
+		   u.deletion_scheduled_at, u.deletion_scheduled_for, u.undo_send_seconds,
+		   u.updated_at, u.created_at,
+		   COALESCE(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS role_ids
+		  FROM users u
+		  LEFT JOIN user_roles ur ON ur.user_id = u.id
+		  WHERE u.%s = $1
+		  GROUP BY u.id`,
+		key,
+	)
+
+	var params = []any{
+		value,
+	}
+
+	var adminPerm uint32
+	err := r.DB.QueryRow(
+		ctx,
+		q,
+		params...,
+	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.AvatarURL, &u.ReferralSource, &u.OnboardingCompletedAt,
+		&u.MaxOrganizations, &u.FreeTrialUsed, &adminPerm,
+		&u.DeletionScheduledAt, &u.DeletionScheduledFor, &u.UndoSendSeconds,
+		&u.UpdatedAt, &u.CreatedAt, &u.Roles)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errx.ErrUser
+		}
+		db.CaptureError(err, q, params, "queryrow")
+		return nil, err
+	}
+
+	// Expose platform-admin status so the admin app's auth guard can gate on it.
+	u.AdminPermissions = models.AdminPermission(adminPerm)
+	u.IsAdmin = adminPerm != 0
+
+	return &u, nil
+}
+
+func (r *userRepository) GetUser(ctx context.Context, userID uuid.UUID) (*models.User, error) {
+	return r.getUser(ctx, "id", userID)
+}
+
+func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	return r.getUser(ctx, "email", email)
+}
+
+func (r *userRepository) SetFreeTrialUsed(ctx context.Context, userID uuid.UUID) error {
+	const q = `UPDATE users SET free_trial_used = TRUE, updated_at = NOW() WHERE id = $1`
+	_, err := r.DB.Exec(ctx, q, userID)
+	return err
+}
+
+func (r *userRepository) UpdateOnboarding(ctx context.Context, userID uuid.UUID, firstName, lastName, referralSource, role, teamSize string) error {
+	const q = `UPDATE users SET first_name=$2, last_name=$3, referral_source=$4, job_role=NULLIF($5,''), team_size=NULLIF($6,''), onboarding_completed_at=NOW(), updated_at=NOW() WHERE id=$1`
+	_, err := r.DB.Exec(ctx, q, userID, firstName, lastName, referralSource, role, teamSize)
+	return err
+}
+
+func (r *userRepository) UpdateProfile(ctx context.Context, userID uuid.UUID, firstName, lastName string) error {
+	const q = `UPDATE users SET first_name=$2, last_name=$3, updated_at=NOW() WHERE id=$1`
+	_, err := r.DB.Exec(ctx, q, userID, firstName, lastName)
+	return err
+}
+
+func (r *userRepository) UpdateAvatar(ctx context.Context, userID uuid.UUID, avatarURL *string) error {
+	const q = `UPDATE users SET avatar_url=$2, updated_at=NOW() WHERE id=$1`
+	_, err := r.DB.Exec(ctx, q, userID, avatarURL)
+	return err
+}
+
+// GetBanState reads only ban_scope — banned_at is implied by
+// scope > 0 since unban sets both back to zero. Returns 0 for unbanned
+// users and for users that don't exist (the latter is fine because
+// those callers fail elsewhere on the auth check).
+func (r *userRepository) GetBanState(ctx context.Context, userID uuid.UUID) (uint32, error) {
+	const q = `SELECT ban_scope FROM users WHERE id = $1`
+	var scope uint32
+	err := r.DB.QueryRow(ctx, q, userID).Scan(&scope)
+	return scope, err
+}
+
+func (r *userRepository) IsEmpty(ctx context.Context) (bool, error) {
+	// EXISTS rather than COUNT: this runs on every signup attempt once the
+	// lockdown is on, and it only ever needs the first row.
+	const q = `SELECT NOT EXISTS (SELECT 1 FROM users LIMIT 1)`
+	var empty bool
+	err := r.DB.QueryRow(ctx, q).Scan(&empty)
+	return empty, err
+}
+
+func (r *userRepository) CountUsers(ctx context.Context) (int, error) {
+	const q = `SELECT count(*) FROM users`
+	var n int
+	err := r.DB.QueryRow(ctx, q).Scan(&n)
+	return n, err
+}
+
+func (r *userRepository) GetUndoSendSeconds(ctx context.Context, userID uuid.UUID) (int, error) {
+	const q = `SELECT undo_send_seconds FROM users WHERE id = $1`
+	var seconds int
+	err := r.DB.QueryRow(ctx, q, userID).Scan(&seconds)
+	return seconds, err
+}
+
+func (r *userRepository) SetUndoSendSeconds(ctx context.Context, userID uuid.UUID, seconds int) error {
+	const q = `UPDATE users SET undo_send_seconds = $2, updated_at = NOW() WHERE id = $1`
+	_, err := r.DB.Exec(ctx, q, userID, seconds)
+	return err
+}
+
+func (r *userRepository) RecordSignupMetadata(ctx context.Context, userID uuid.UUID, ip, userAgent string, emailRisk int, normalizedEmail string) error {
+	// An unparseable or absent address is stored as NULL rather than failing
+	// the write: the rest of the evidence is still worth keeping.
+	var addr any
+	if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
+		addr = parsed.String()
+	}
+	_, err := r.DB.Pool.Exec(ctx, `
+		UPDATE users
+		   SET signup_ip = $2::inet,
+		       signup_user_agent = NULLIF($3, ''),
+		       signup_email_risk = $4,
+		       signup_email_normalized = NULLIF($5, '')
+		 WHERE id = $1
+	`, userID, addr, truncate(userAgent, 512), emailRisk, normalizedEmail)
+	return err
+}
+
+// truncate bounds a client-supplied string before it reaches the database.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}

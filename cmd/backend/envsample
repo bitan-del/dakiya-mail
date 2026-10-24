@@ -1,0 +1,54 @@
+# DATABASES / SERVICES
+PRIMARY_DB="postgresql://username:password@localhost:5433/database"
+REDIS="redis://arbitrary_usrname:password@ipaddress:6379/0"
+KAFKA="amqp://username:password@ip:port/vhost"
+GEO_DB_PATH="./database.mmdb"
+
+# NoSQL Cassandra Database (Datastax Astra)
+ASTRA_DB_ID=""
+ASTRA_DB_REGION=""
+ASTRA_KEYSPACE_NAME=""
+ASTRA_APPLICATION_TOKEN=""
+
+# Authentication
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GOOGLE_REDIRECT_URI=""
+
+APPLE_APP_ID=""
+APPLE_TEAM_ID=""
+APPLE_KEY_ID=""
+APPLE_KEY_SECRET=""
+APPLE_REDIRECT_URI=""
+
+# Config
+NOTIFY_NAME="Dakiya Mail Notifications"
+NOTIFY_ADDRESS="noreply@dakiyamail.com"
+TRACKING_DOMAIN="track.example.com"
+WEBSOCKET_URL="ws://localhost:4000"
+
+# Api 
+PORT=8080
+GIN_MODE=release
+OPEN_API=true
+
+# Logs
+SENTRY_DSN=""
+
+# SECRETS
+AUTH_SECRET="example123"
+TURNSTILE_SECRET=""
+
+# Passkeys (WebAuthn). Optional — derived from APP_URL / CORS_ALLOW_ORIGINS
+# when unset (and localhost for local dev). Override for self-hosting:
+#   WEBAUTHN_RP_ID is the bare host (no scheme/port) passkeys bind to.
+#   WEBAUTHN_RP_ORIGINS is a CSV of full origins allowed to run ceremonies.
+# Changing the RP ID invalidates every enrolled passkey — keep it stable.
+# WEBAUTHN_RP_ID="app.dakiyamail.com"
+# WEBAUTHN_RP_ORIGINS="https://app.dakiyamail.com"
+# WEBAUTHN_RP_DISPLAY_NAME="Dakiya Mail"
+
+# Amazon AWS
+AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxxxx
+AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxx
+AWS_DEFAULT_REGION=eu-north-1

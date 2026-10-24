@@ -1,0 +1,452 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import HeroAtmosphere from '../../components/HeroAtmosphere.astro';
+import Icon from '../../components/Icon.astro';
+import CTA from '../../components/CTA.astro';
+
+// Six fake-but-realistic client workspaces for the roster card grid.
+// Volume numbers tie back to platform defaults: 50/day cold cap, premium pool warmup.
+const workspaces = [
+  { code: 'NW', name: 'Northwind Co.',       industry: 'B2B SaaS · ops',          mailboxes: 8,  deals: 23, weekly: 1820, status: 'healthy',  tone: 'emerald', plan: 'Grow' },
+  { code: 'LR', name: 'Lumen Robotics',      industry: 'Industrial · robotics',   mailboxes: 6,  deals: 14, weekly: 1340, status: 'healthy',  tone: 'emerald', plan: 'Starter', active: true },
+  { code: 'GH', name: 'Glasshouse Labs',     industry: 'Dev tooling',             mailboxes: 4,  deals: 9,  weekly:  870, status: 'watch',    tone: 'amber',   plan: 'Starter' },
+  { code: 'PH', name: 'Penna Health',        industry: 'Healthtech',              mailboxes: 5,  deals: 18, weekly: 1110, status: 'healthy',  tone: 'emerald', plan: 'Grow' },
+  { code: 'VL', name: 'Vela Logistics',      industry: 'Freight · logistics',     mailboxes: 3,  deals: 6,  weekly:  640, status: 'paused',   tone: 'slate',   plan: 'Starter' },
+  { code: 'ST', name: 'Stratech',            industry: 'Enterprise platform',     mailboxes: 9,  deals: 31, weekly: 2040, status: 'healthy',  tone: 'emerald', plan: 'Business' },
+];
+
+const statusTone = (t: string) => {
+  if (t === 'emerald') return { dot: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700', text: 'text-emerald-700' };
+  if (t === 'amber')   return { dot: 'bg-amber-500',   chip: 'bg-amber-50 text-amber-700',     text: 'text-amber-700' };
+  return                       { dot: 'bg-slate-400',  chip: 'bg-slate-100 text-slate-600',    text: 'text-slate-600' };
+};
+
+// Hoist comparisons that JSX cannot inline (the `<` character is awkward in Astro JSX).
+const totalMailboxes = workspaces.reduce((n, w) => n + w.mailboxes, 0);
+const totalDeals     = workspaces.reduce((n, w) => n + w.deals, 0);
+const totalWeekly    = workspaces.reduce((n, w) => n + w.weekly, 0);
+
+// What is walled off per workspace — each maps to a real platform boundary.
+const isolation = [
+  { term: 'Sender pool',     scope: 'mailboxes + workers', icon: 'shield',
+    body: 'Each workspace owns its mailboxes, its warmup-pool membership and its worker assignment. Nothing is shared across clients by default.' },
+  { term: 'Warmup pairing',  scope: 'premium pool',        icon: 'users',
+    body: 'A mailbox that trips the quarantine band recovers inside its own workspace and never warms against another client\'s inboxes.' },
+  { term: 'Suppression',     scope: 'per workspace',       icon: 'lock',
+    body: 'Bounces, complaints and unsubscribes are stored per workspace, so one client\'s do-not-contact list can never block another client\'s sequence.' },
+  { term: 'Analytics + API', scope: 'per workspace',       icon: 'chart',
+    body: 'Sends, replies, placement and complaint rate, plus API keys and webhooks, are scoped to the workspace. Each client sees only their own numbers.' },
+];
+
+// Real safety defaults — from internal/config/constants.go.
+const safetyDefaults = [
+  { v: '50 / day', k: 'Cold cap per mailbox',   note: '100 hard max' },
+  { v: '600 s',    k: 'Minimum gap per send',   note: 'no bursts' },
+  { v: '10 → 40',  k: 'Warmup ramp per day',    note: '+1 a day' },
+  { v: '10%',      k: 'Acts at spam placement', note: 'not 80%' },
+];
+
+// Mailbox health ladder (warmup quarantine bands).
+const healthBands = [
+  { name: 'Healthy',     tone: 'emerald' },
+  { name: 'Watch',       tone: 'amber'   },
+  { name: 'Quarantined', tone: 'orange'  },
+  { name: 'Blocked',     tone: 'rose'    },
+];
+const bandClass = (tone: string) => {
+  if (tone === 'emerald') return 'ring-emerald-200 text-emerald-700 bg-emerald-50';
+  if (tone === 'amber')   return 'ring-amber-200 text-amber-700 bg-amber-50';
+  if (tone === 'orange')  return 'ring-orange-200 text-orange-700 bg-orange-50';
+  return 'ring-rose-200 text-rose-700 bg-rose-50';
+};
+
+// Pricing math: per-workspace, per-plan, no per-seat charge.
+// Numbers below come straight from /pricing/ — kept as ranges or "per plan" labels rather than invented dollar figures.
+const pricingFacts = [
+  { k: 'Billing unit',         v: 'per workspace',          why: 'One subscription per client. Agency owner pays, marks up however they want.' },
+  { k: 'Seat charge',          v: 'none',                   why: 'Add the BDR, the AE, the QA reviewer. Seat count never changes the bill.' },
+  { k: 'Mailbox limit',        v: 'per plan',               why: 'Each plan sets how many mailboxes a workspace gets. Add more workspaces to add capacity across clients.' },
+  { k: 'Warmup access',        v: 'premium pool',           why: 'Every paid workspace warms on the premium pool, under the same quarantine bands as the rest of your clients.' },
+  { k: 'Markup model',         v: 'whatever you want',      why: 'You bill the client, we bill you per workspace, and the difference is yours.' },
+];
+
+const faq = [
+  ['Can one client\'s bad mailbox affect another client?',
+   'No. Workspaces are sender-pool isolated. A mailbox that hits the quarantine band drops into recovery inside its own workspace and never participates in warmup pairs against mailboxes from a different client workspace.'],
+  ['How many client workspaces can I run?',
+   'As many as you subscribe to. Each client is its own workspace with its own subscription, and workspaces stack, so capacity scales with the roster instead of with a seat count.'],
+  ['Do I have to manage billing for every client?',
+   'You own every workspace subscription as the agency. Clients do not see a Dakiya Mail invoice unless you transfer ownership. Mark up whatever you want at the agency level.'],
+  ['Can a client get its own dedicated IPs?',
+   'Yes. By default every paid workspace shares the premium warmup and worker pool. For a client that needs its own reputation surface, you can move it to dedicated workers, each its own machine and IP, carrying only that client\'s mail.'],
+  ['What happens when a client\'s mailbox starts landing in spam?',
+   'It steps down the health ladder (Healthy, Watch, Quarantined, Blocked) and is pulled from the shared pool well before mailbox providers penalize it, acting around 10% spam placement rather than 80%, then recovers inside its own workspace.'],
+  ['Can clients log in to see their own data?',
+   'Yes, on Grow and Business. Roles let you invite the client read-only or scope them to just their workspace, while keeping billing and worker config on your side.'],
+];
+---
+<Layout
+  title="Outbound for Agencies & Clients | Dakiya Mail"
+  description="Run outbound for many clients on many domains. Workspace-per-client isolation, dedicated sending infrastructure and per-workspace billing."
+>
+  <!-- ============================================================
+       HERO · HeroAtmosphere (shared pattern)
+  ============================================================ -->
+  <section class="relative isolate overflow-hidden">
+    <HeroAtmosphere />
+
+    <div class="container-page relative pt-16 md:pt-24 pb-20 md:pb-28 text-center">
+      <div class="inline-flex max-w-full items-center gap-2 h-7 pl-1 pr-3 rounded-full bg-white/15 backdrop-blur ring-1 ring-white/25 text-[11.5px] sm:text-[12px] text-white/95 whitespace-nowrap shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+        <span class="inline-flex items-center h-5 px-1.5 shrink-0 rounded-full text-[10.5px] font-semibold uppercase tracking-[0.06em] bg-white" style="color:#0369a1;">
+          Agencies
+        </span>
+        <span class="hidden sm:inline">Run outbound for every client you manage</span>
+        <span class="sm:hidden">Outbound for every client</span>
+      </div>
+
+      <h1 class="mt-8 md:mt-10 text-[44px] sm:text-6xl md:text-[72px] lg:text-[80px] font-semibold tracking-[-0.04em] leading-[0.98] text-white max-w-5xl mx-auto">
+        One platform for<br/>every client domain.
+      </h1>
+      <p class="mt-6 text-[17px] md:text-[19px] text-white/80 max-w-2xl mx-auto leading-relaxed">
+        Each client gets their own workspace, so their mailboxes, analytics and suppression lists never mix. Switch between clients in one keystroke and bill them all from a single account.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="https://app.dakiyamail.com/register" class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-semibold bg-white hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.3)] transition-all duration-200 ease-out shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18)]">
+          <span style="color:#075985;">Start free</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#075985" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="#workspaces" class="inline-flex h-11 px-5 items-center rounded-[10px] text-[14.5px] font-medium bg-white/10 backdrop-blur ring-1 ring-white/40 text-white hover:bg-white/20 hover:-translate-y-0.5 transition-all duration-200 ease-out">
+          See the client roster
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       CLIENT ROSTER · responsive workspace cards (one per client)
+  ============================================================ -->
+  <section id="workspaces" class="py-20 md:py-28 scroll-mt-24">
+    <div class="container-page">
+      <!-- Heading + agency roll-up -->
+      <div class="grid lg:grid-cols-[1fr_auto] gap-8 lg:gap-12 lg:items-end mb-10 md:mb-14">
+        <div class="max-w-2xl">
+          <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Workspace per client</div>
+          <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+            Your whole client roster, one login.
+          </h2>
+          <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+            Every client gets a workspace of their own, with separate mailboxes, warmup and analytics. Open any client from the switcher, and bill them all from one account.
+          </p>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-4 shrink-0">
+          {[
+            { label: 'Workspaces',   value: String(workspaces.length) },
+            { label: 'Mailboxes',    value: String(totalMailboxes) },
+            { label: 'Open deals',   value: String(totalDeals) },
+            { label: 'Weekly sends', value: totalWeekly.toLocaleString() },
+          ].map((s) => (
+            <div>
+              <div class="text-[28px] md:text-[32px] font-semibold tracking-[-0.03em] text-heading leading-none">{s.value}</div>
+              <div class="mt-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-muted-foreground">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- Client workspace cards -->
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
+        {workspaces.map((w) => {
+          const t = statusTone(w.tone);
+          return (
+            <div class={`relative rounded-[14px] bg-white ring-1 lift-on-hover ${w.active ? 'ring-[#0284c7]/40' : 'ring-[color:var(--border)]'}`} style="box-shadow: var(--shadow-sm);">
+              <div class="p-6">
+                <!-- Identity -->
+                <div class="flex items-start gap-3">
+                  <span class="inline-flex w-10 h-10 shrink-0 rounded-[10px] bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] text-foreground/70 items-center justify-center text-[13px] font-semibold tracking-[-0.01em]">{w.code}</span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[15px] font-semibold tracking-[-0.01em] text-heading truncate">{w.name}</div>
+                    <div class="text-[12px] text-muted-foreground truncate">{w.industry}</div>
+                  </div>
+                  <span class={`inline-flex items-center gap-1.5 text-[11px] font-medium ${t.text}`}>
+                    <span class={`w-1.5 h-1.5 rounded-full ${t.dot}`}></span>
+                    {w.status}
+                  </span>
+                </div>
+
+                <!-- Per-workspace numbers -->
+                <div class="mt-5 pt-5 border-t border-[color:var(--border)] grid grid-cols-3 gap-3">
+                  <div>
+                    <div class="text-[18px] font-semibold tracking-[-0.02em] text-heading leading-none">{w.mailboxes}</div>
+                    <div class="mt-1.5 text-[9.5px] uppercase tracking-[0.14em] font-mono text-muted-foreground">Mailboxes</div>
+                  </div>
+                  <div>
+                    <div class="text-[18px] font-semibold tracking-[-0.02em] text-heading leading-none">{w.deals}</div>
+                    <div class="mt-1.5 text-[9.5px] uppercase tracking-[0.14em] font-mono text-muted-foreground">Deals</div>
+                  </div>
+                  <div>
+                    <div class="text-[18px] font-semibold tracking-[-0.02em] text-heading leading-none">{w.weekly.toLocaleString()}</div>
+                    <div class="mt-1.5 text-[9.5px] uppercase tracking-[0.14em] font-mono text-muted-foreground">Weekly</div>
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="mt-5 pt-4 border-t border-[color:var(--border)] flex items-center justify-between text-[11.5px] font-mono text-muted-foreground">
+                  <span class="inline-flex items-center gap-1.5">
+                    <Icon name="shield" size={12} class="text-[#0284c7]" />
+                    Isolated workspace
+                  </span>
+                  <span class="text-foreground/70">{w.plan}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <!-- Footnote -->
+      <div class="mt-7 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground text-center">
+        <span>One subscription per workspace.</span>
+        <span class="text-foreground/30">·</span>
+        <span>The agency owner pays and sets the markup.</span>
+        <span class="text-foreground/30">·</span>
+        <span class="inline-flex items-center gap-1.5">Switch with
+          <kbd class="inline-flex items-center h-4 px-1 rounded bg-white ring-1 ring-[color:var(--border)] text-[10px] text-foreground/70 font-mono">⌘</kbd>
+          <kbd class="inline-flex items-center h-4 px-1 rounded bg-white ring-1 ring-[color:var(--border)] text-[10px] text-foreground/70 font-mono">K</kbd>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       PER-CLIENT ISOLATION · concrete boundaries, real terms
+  ============================================================ -->
+  <section class="border-y border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page grid lg:grid-cols-[1fr_1.25fr] gap-12 lg:gap-16 items-start">
+      <div class="lg:sticky lg:top-24" style="align-self: start;">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Per-client isolation</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          One client never touches another.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed max-w-md">
+          It's not a dashboard filter. Each of these is a real boundary in how the data is stored, so a problem in one client's account can't reach another's.
+        </p>
+      </div>
+
+      <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] divide-y divide-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+        {isolation.map((b) => (
+          <div class="flex items-start gap-4 p-5 md:p-6">
+            <span class="inline-flex w-10 h-10 shrink-0 rounded-[10px] bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] text-[#0284c7] items-center justify-center">
+              <Icon name={b.icon} size={16} />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-[15px] font-semibold tracking-[-0.01em] text-heading">{b.term}</h3>
+                <span class="shrink-0 text-[10px] uppercase tracking-[0.14em] font-mono text-muted-foreground bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] px-2 py-0.5 rounded">{b.scope}</span>
+              </div>
+              <p class="mt-1.5 text-[13.5px] text-foreground/70 leading-relaxed">{b.body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SENDING INFRASTRUCTURE · shared premium pool vs dedicated
+  ============================================================ -->
+  <section class="py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-2xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Sending infrastructure</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Shared premium pool, or dedicated IPs per client.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          Every paid workspace warms and sends on the shared premium pool. When a client grows big enough to want its own IPs, move it onto dedicated workers, each on its own machine, sending only that client's mail.
+        </p>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4 lg:gap-5">
+        <!-- Shared premium -->
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 md:p-7" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-center justify-between gap-3">
+            <span class="inline-flex w-10 h-10 rounded-[10px] bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] text-foreground/70 items-center justify-center"><Icon name="users" size={16} /></span>
+            <span class="text-[10px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Default · every paid plan</span>
+          </div>
+          <h3 class="mt-5 text-[18px] font-semibold tracking-[-0.02em] text-heading">Shared premium pool</h3>
+          <p class="mt-2 text-[13.5px] text-foreground/70 leading-relaxed">Clients warm on the vetted premium pool and send through shared premium workers, so the volume is spread across many machines and IPs from day one. Nothing to set up.</p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-foreground/80">
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>Vetted, monitored premium warmup pool</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>Volume spread across many worker IPs</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>Quarantine bands protect the shared pool</span></li>
+          </ul>
+        </div>
+        <!-- Dedicated -->
+        <div class="rounded-[14px] bg-white ring-1 ring-[#0284c7]/30 p-6 md:p-7" style="box-shadow: var(--shadow-md);">
+          <div class="flex items-center justify-between gap-3">
+            <span class="inline-flex w-10 h-10 rounded-[10px] bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] text-[#0284c7] items-center justify-center"><Icon name="cpu" size={16} /></span>
+            <span class="text-[10px] uppercase tracking-[0.16em] font-mono text-[#0284c7]">Higher plans</span>
+          </div>
+          <h3 class="mt-5 text-[18px] font-semibold tracking-[-0.02em] text-heading">Dedicated workers &amp; IPs</h3>
+          <p class="mt-2 text-[13.5px] text-foreground/70 leading-relaxed">Give a client its own workers, one per machine, each with its own IP, sending only their mail. Their sending reputation stands on its own.</p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-foreground/80">
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>One worker per machine, its own IP</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>Safe volume = the sum of that client's mailbox caps</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-0.5 shrink-0" /><span>Rebalance or migrate mailboxes without downtime</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="mt-6 text-[12px] font-mono text-muted-foreground">Spreading sends across many machines, each with its own IP, is safer than pushing everything through one.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       REPUTATION PROTECTION · safety defaults + health ladder
+  ============================================================ -->
+  <section class="bg-[color:var(--surface-2)]/60 border-t border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-2xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Reputation protection</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Every client starts on safe sending limits.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          The conservative defaults are on for every workspace, and the platform keeps them there. Raising a limit takes a deliberate change, so one mailbox or one client can't quietly drag down everyone else's deliverability.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {safetyDefaults.map((s) => (
+          <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-5" style="box-shadow: var(--shadow-sm);">
+            <div class="text-[26px] md:text-[28px] font-semibold tracking-[-0.03em] text-heading leading-none">{s.v}</div>
+            <div class="mt-2 text-[12px] text-foreground/75 leading-snug">{s.k}</div>
+            <div class="mt-1 text-[10px] uppercase tracking-[0.14em] font-mono text-muted-foreground">{s.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <div class="mt-4 rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 md:p-7" style="box-shadow: var(--shadow-sm);">
+        <div class="flex items-baseline justify-between gap-4 flex-wrap mb-4">
+          <div class="text-[10.5px] uppercase tracking-[0.18em] font-mono text-muted-foreground">Mailbox health ladder</div>
+          <div class="text-[12px] text-foreground/65 max-w-md">A mailbox steps down a band before providers ever penalize it, then recovers in its own workspace.</div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {healthBands.map((b, i) => (
+            <div class={`rounded-[10px] ring-1 px-3 py-2.5 flex items-center gap-2 ${bandClass(b.tone)}`}>
+              <span class="text-[10px] font-mono opacity-70">{String(i + 1).padStart(2, '0')}</span>
+              <span class="text-[12.5px] font-semibold">{b.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       PRICING MATH · spec sheet for agency-shaped billing
+  ============================================================ -->
+  <section class="border-b border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-2xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Pricing math</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          You pay per workspace, not per seat.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          Billing is per client workspace, and seats are free, so adding a BDR, an AE or a QA reviewer never changes what you pay. You set the client's price; we invoice you per workspace.
+        </p>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-x-12 gap-y-px">
+        {pricingFacts.map((p, i) => (
+          <div class="group grid grid-cols-[1fr_auto] gap-6 py-6 border-b border-[color:var(--border)] items-baseline transition-colors hover:bg-[color:var(--surface-2)]/60 -mx-3 px-3 rounded-[6px]">
+            <div>
+              <div class="text-[10.5px] uppercase tracking-[0.22em] font-mono text-muted-foreground">
+                {String(i + 1).padStart(2, '0')} · {p.k}
+              </div>
+              <p class="mt-2 text-[13.5px] text-foreground/65 leading-relaxed max-w-md">{p.why}</p>
+            </div>
+            <div class="text-right">
+              <div class="text-[20px] md:text-[24px] font-semibold tracking-[-0.02em] text-heading font-mono whitespace-nowrap">{p.v}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div class="mt-10 rounded-[12px] bg-[color:var(--surface-2)] ring-1 ring-[color:var(--border)] p-6 md:p-7 grid md:grid-cols-[1fr_auto] gap-5 items-center">
+        <div>
+          <div class="text-[10.5px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-2">How it works out</div>
+          <p class="text-[14px] text-foreground/80 leading-relaxed max-w-2xl">
+            You take one workspace per client, on whatever plan that client needs. Charge the client whatever your contract says, and keep the difference.
+          </p>
+        </div>
+        <a href="/pricing/" class="inline-flex h-10 px-4 items-center gap-2 rounded-[10px] text-[13px] font-medium bg-foreground text-background hover:bg-[#1f2937] transition-colors whitespace-nowrap">
+          See pricing
+          <Icon name="arrowRight" size={12} />
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FAQ · grid-rows accordion (shared pattern)
+  ============================================================ -->
+  <section class="bg-[color:var(--surface-2)]/60 py-20 md:py-24">
+    <div class="container-page grid lg:grid-cols-[1fr_1.8fr] gap-12 lg:gap-20 items-start">
+      <div class="lg:sticky lg:top-24" style="align-self: start;">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-muted-foreground mb-3">Agency FAQ</div>
+        <h2 class="text-[28px] md:text-[36px] font-semibold tracking-[-0.025em] leading-[1.08] text-heading">
+          Questions agencies ask first.
+        </h2>
+        <p class="mt-4 text-[14.5px] text-foreground/70 leading-relaxed">
+          Still have questions? Talk to <a class="text-[#0369a1] hover:text-[#075985] font-medium" href="/contact/">our team</a> about rolling this out across your clients.
+        </p>
+      </div>
+      <div class="divide-y divide-[color:var(--border)]" data-faq>
+        {faq.map(([q, a]) => (
+          <div class="faq-row py-2">
+            <button type="button" class="faq-trigger group w-full flex items-start justify-between gap-4 py-3 text-left" aria-expanded="false">
+              <span class="text-[15.5px] font-medium text-heading group-hover:text-[#0369a1] transition-colors">{q}</span>
+              <span class="faq-icon shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white ring-1 ring-[color:var(--border)] text-foreground/60 transition-transform duration-300 ease-out">
+                <Icon name="plus" size={12} />
+              </span>
+            </button>
+            <div class="faq-panel grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out">
+              <div class="overflow-hidden">
+                <p class="pb-4 pr-12 text-[14px] text-foreground/75 leading-relaxed max-w-2xl">{a}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <script is:inline>
+        (function () {
+          const faq = document.querySelector('[data-faq]');
+          if (!faq) return;
+          faq.querySelectorAll('.faq-trigger').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              const row   = btn.closest('.faq-row');
+              const panel = row.querySelector('.faq-panel');
+              const icon  = btn.querySelector('.faq-icon');
+              const open  = btn.getAttribute('aria-expanded') === 'true';
+              btn.setAttribute('aria-expanded', String(!open));
+              panel.style.gridTemplateRows = open ? '0fr' : '1fr';
+              if (icon) icon.style.transform = open ? 'rotate(0deg)' : 'rotate(45deg)';
+            });
+          });
+        })();
+      </script>
+    </div>
+  </section>
+
+  <CTA
+    title="Run every client's outbound from one account."
+    primaryLabel="Start free"
+  />
+</Layout>

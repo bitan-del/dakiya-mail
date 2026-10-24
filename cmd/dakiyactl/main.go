@@ -1,0 +1,213 @@
+// dakiyactl is the CLI for a Dakiya Mail instance. It has two halves with two
+// trust models, and the split is deliberate:
+//
+// The operator commands (status, setup-link, user, org) talk to the database
+// directly, so they keep working when signing in does not. Their authorization
+// is container or host access, the same trust model as Sentry's createuser,
+// Gitea's `admin user create` and authentik's `ak changepassword`. They read
+// PRIMARY_DB and REDIS from the environment, which is why running them inside
+// the backend container is the documented path.
+//
+// The API commands (api, campaign, contact, mailbox, inbox, ...) are an HTTP
+// client over the public REST API, authorized by an API key, so they drive any
+// instance the caller can reach, including the hosted service. They exist so
+// agents and scripts can operate the product itself: everything they can do is
+// bounded by the key's scopes. The CLI must never SERVE HTTP; being a client
+// of the already-gated public API adds no new surface.
+//
+//	docker compose -p dakiya exec backend dakiyactl status
+//	DAKIYA_API_KEY=dakiya_... dakiyactl campaign list
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"strings"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	args := os.Args[1:]
+	if len(args) == 0 {
+		usage(os.Stderr)
+		os.Exit(2)
+	}
+
+	if err := dispatch(ctx, args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		// A failing check has already printed itself; repeating it as an error
+		// line would bury the findings under the tool's own noise.
+		if errors.Is(err, errChecksFailed) {
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+}
+
+func dispatch(ctx context.Context, args []string) error {
+	switch args[0] {
+	case "help", "-h", "--help":
+		usage(os.Stdout)
+		return nil
+	case "status":
+		return runStatus(ctx, args[1:])
+	case "setup-link":
+		return runSetupLink(ctx, args[1:])
+	case "hash-password":
+		return runHashPassword(ctx, args[1:])
+	case "user":
+		return runUser(ctx, args[1:])
+	case "org":
+		return runOrg(ctx, args[1:])
+	case "api":
+		return runAPI(ctx, args[1:])
+	}
+	if _, ok := apiFamilies[args[0]]; ok {
+		return runAPIResource(ctx, args[0], args[1:])
+	}
+	return fmt.Errorf("unknown command %q. Run `dakiyactl --help` for the full list.", args[0])
+}
+
+// command is one help entry: what it does and one invocation worth copying.
+// The example is the whole command line, because the piped ones do not survive
+// having a `docker compose exec` prefix bolted on.
+type command struct {
+	name    string
+	summary string
+	example string
+}
+
+const composeExec = "docker compose -p dakiya exec backend dakiyactl "
+
+var commands = []command{
+	{"status", "Show accounts, admins, registration and mail state, how to get in, and what is wrong", composeExec + "status"},
+	{"setup-link", "Print a fresh single-use link that claims an instance with no accounts", composeExec + "setup-link"},
+	{"user create", "Create a user, an organization and a trial, optionally a platform admin", composeExec + "user create --email you@example.com --admin"},
+	{"user list", "List accounts; --admin answers whether any platform admin survives", composeExec + "user list --admin"},
+	{"user reset-password", "Print a one-time reset link, or set the password from stdin", composeExec + "user reset-password --email you@example.com"},
+	{"user grant-admin", "Give an account a platform admin role", composeExec + "user grant-admin --email you@example.com --role super"},
+	{"user revoke-admin", "Take platform admin away from an account", composeExec + "user revoke-admin --email old@example.com"},
+	{"user disable-2fa", "Clear an account's TOTP enrollment after a lost authenticator", composeExec + "user disable-2fa --email you@example.com"},
+	{"hash-password", "Print an argon2 hash for DAKIYA_BOOTSTRAP_PASSWORD_HASH", "printf '%s' 'your-password' | docker compose -p dakiya exec -T backend dakiyactl hash-password"},
+	{"org list", "List the workspaces on this instance with their id, owner, and size", composeExec + "org list"},
+	{"org export", "Write a whole workspace to a portable archive file", composeExec + "org export --org you@example.com --out /tmp/workspace.dakiya.zip"},
+	{"org import", "Apply an archive to a workspace on this instance", composeExec + "org import --org you@example.com --file /tmp/workspace.dakiya.zip"},
+}
+
+func usage(w *os.File) {
+	fmt.Fprint(w, `dakiyactl is the CLI for a Dakiya Mail instance. The operator commands read and
+write the database directly, so they work when the sign-in page does not. The
+API commands drive a running instance over its public REST API with an API
+key, so they work against any instance you hold a key for, hosted included.
+
+Usage:
+  dakiyactl <command> [flags]
+
+Operator commands (run where PRIMARY_DB is set, normally the backend container):
+`)
+	for _, c := range commands {
+		fmt.Fprintf(w, "  %-20s %s\n", c.name, c.summary)
+	}
+
+	fmt.Fprint(w, "\nAPI commands (need DAKIYA_API_KEY; each family lists its own subcommands):\n")
+	for _, f := range apiFamilyOrder {
+		fmt.Fprintf(w, "  %-20s %s\n", f, apiFamilies[f])
+	}
+	fmt.Fprintf(w, "  %-20s %s\n", "api", "Raw passthrough: any method, any /v1 path")
+
+	fmt.Fprint(w, "\nExamples:\n")
+	for _, c := range commands {
+		fmt.Fprintf(w, "  %s\n", c.example)
+	}
+	fmt.Fprint(w, `  dakiyactl campaign list
+  dakiyactl campaign start --id <uuid>
+  dakiyactl api get "/campaigns?limit=10"
+`)
+
+	_, _ = io.WriteString(w, `
+Anything piped into a container needs exec -T, which is what turns the TTY off.
+Anything that prompts needs a TTY, so run it without -T.
+
+Environment:
+  PRIMARY_DB       Postgres connection string. Every operator command except hash-password needs it.
+  REDIS            Redis URL. setup-link needs it, and reset-password needs it to mint a link.
+  APP_URL          Base URL every printed link is built from.
+  DAKIYA_API_KEY  API key (dakiya_...) for the API commands.
+  DAKIYA_API_URL  API base URL for the API commands. Defaults to this instance's
+                   API_PUBLIC_URL, then the hosted service.
+
+  org export and org import additionally read the instance's crypto settings,
+  because a workspace's sealed values have to be opened on the way out and
+  re-sealed on the way in: KMS_PROVIDER (with KMS_LOCAL_MASTER_KEY or the AWS
+  settings) and CREDENTIALS_ENCRYPTION_KEY. Run them inside the backend
+  container, where those are already set.
+
+Exit status:
+  status exits non-zero when a check is at error severity, so it works as a
+  post-deploy gate. Use status --quiet from cron: it prints the checks alone,
+  and nothing at all when none fire. status --json always exits 0, because it
+  doubles as a liveness probe; read .summary.error there instead.
+
+Run `+"`dakiyactl <command> --help`"+` for one command's flags.
+`)
+}
+
+// newFlagSet gives every subcommand the same help shape: its flags, then one
+// example, because a flag list alone never answers "what do I type". The text
+// comes from the commands table so there is one place to keep it honest.
+func newFlagSet(name string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	c := lookupCommand(name)
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "%s.\n\nUsage:\n  dakiyactl %s [flags]\n\nFlags:\n", c.summary, name)
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExample:\n  %s\n", c.example)
+	}
+	return fs
+}
+
+func lookupCommand(name string) command {
+	for _, c := range commands {
+		if c.name == name {
+			return c
+		}
+	}
+	return command{name: name, summary: "dakiyactl " + name}
+}
+
+// noExtraArgs rejects stray positional arguments so a typo like
+// `user create you@example.com` fails loudly instead of creating nothing.
+func noExtraArgs(fs *flag.FlagSet) error {
+	if fs.NArg() == 0 {
+		return nil
+	}
+	return fmt.Errorf("unexpected argument %q. Every value goes in a flag, for example --email you@example.com.", fs.Arg(0))
+}
+
+// warn writes an operational note that is not a failure.
+func warn(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
+}
+
+// indent renders a block of next steps under a heading.
+func printSteps(heading string, steps []string) {
+	if len(steps) == 0 {
+		return
+	}
+	fmt.Printf("\n%s\n", heading)
+	for _, s := range steps {
+		for _, line := range strings.Split(s, "\n") {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+}

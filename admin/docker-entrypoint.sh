@@ -1,0 +1,17 @@
+#!/bin/sh
+# Render the runtime config from container env so a single built image serves
+# any deployment. Runs before nginx starts (nginx /docker-entrypoint.d hook).
+set -eu
+
+cat > /usr/share/nginx/html/config.js <<EOF
+window.__DAKIYA_ENV__ = {
+  API_URL: "${DAKIYA_API_URL:-}",
+  DASHBOARD_URL: "${DAKIYA_DASHBOARD_URL:-}",
+  ENV_LABEL: "${DAKIYA_ENV_LABEL:-}",
+  TURNSTILE_KEY: "${DAKIYA_TURNSTILE_KEY:-}"
+};
+EOF
+
+# The redirect truncates in place and keeps whatever mode the built file had, so
+# a restrictive umask or checkout leaves nginx serving 403 for the whole config.
+chmod 644 /usr/share/nginx/html/config.js

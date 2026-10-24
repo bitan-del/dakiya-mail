@@ -1,0 +1,95 @@
+---
+title: "Team & roles"
+description: "Invite members and control access with roles and permissions."
+---
+
+Share a workspace with your team: invite by email, give each person a role, and the role decides what they can see and change. The roster and invitations live under **Settings > Members**; roles and the permission matrix under **Settings > Roles & access**.
+
+<Callout type="info" title="Who can manage the team">
+Inviting, re-roling, removing, and managing roles all need the **Manage team** permission (the owner and the seeded Admin role have it; any custom role can carry it). Without it the roster is read-only.
+</Callout>
+
+## Inviting members
+
+In the **Invite teammates** box, paste or type addresses into **Emails**, separated by comma, semicolon, space, or Enter. Each becomes a chip: valid ones grey, malformed ones red so you can remove them first. Pick one or more **Roles** for the batch (a description on the right says what you are granting), then **Send invitations**.
+
+Dakiya Mail sends one invitation per address and reports results as "Invited 2 · 1 failed". Invalid addresses are skipped and called out. The chips clear when the batch finishes.
+
+**Pending invitations** shows the email, role, and expiry for each unaccepted invite, with two actions on the right of the row: copy the invite link (to share directly instead of waiting on email) and cancel the invitation. There is no resend button. To give somebody a fresh link, invite the same address again: that replaces the invitation in place with a new token and a reset expiry, and the previously copied link stops working.
+
+<Callout type="info" title="Roles are not permanent">
+The invite-time role can be changed inline from the roster later, so it is fine to start people narrow and widen access afterward.
+</Callout>
+
+### On a self-hosted instance
+
+Two things work differently when you run Dakiya Mail yourself.
+
+**An invited person creates their account from the invitation link.** A self-hosted instance ships with signups closed to the public (`DISABLE_REGISTRATION=invite_only`), so visiting the sign-up form directly is refused. The invitation link carries the token that permits the signup, which is why the flow works: the invitee opens the link, clicks **Create an account**, and lands inside your workspace rather than in a new one.
+
+**Invitations may not arrive by email.** Platform mail defaults to a transport that writes messages to the backend log instead of delivering them, so copying the invite link is the path rather than the fallback. The members page shows an amber notice above the **Emails** field when the server reports that mail is not delivered, telling you to invite the person and then copy the link from their row under **Pending invitations**.
+
+Both are covered in [accounts and access](/development/accounts-and-access/#without-a-mail-relay), along with how to point the instance at a real relay.
+
+## The roster
+
+Each row shows email, role, and join date, with your own row tagged "you". Open the role picker on a row to tick the roles that member holds; a member can hold several, and their effective access is the union. The owner's row is a fixed Owner badge, and your own row is not editable.
+
+To remove someone, hover (or tap) their row and click the remove icon. **You cannot remove the owner or yourself.** To leave a workspace you own, transfer ownership first.
+
+## Roles
+
+Roles are workspace data. Every workspace starts with three seeded roles that are ordinary roles in every respect: rename, recolor, re-permission, or delete them, and add your own. **Owner is a membership status, not a role**, and there is exactly one per workspace.
+
+| Role | Starts with |
+| --- | --- |
+| **Owner** (status) | Full control, including ownership transfer |
+| **Admin** | Everything except transferring ownership |
+| **Manager** | Day-to-day operator: campaigns, contacts, mailboxes, integrations. No team, billing, settings, or API keys |
+| **Viewer** | Read-only |
+
+### Permissions
+
+| Area | Capability | Allows |
+| --- | --- | --- |
+| **Data** | View / manage campaigns | Read settings, sequences, analytics / create, edit, archive |
+| | View / manage contacts | Read contacts, segments, tags / create, edit, delete |
+| | Manage sequences | Edit step content and spacing |
+| | View analytics | Deliverability and engagement reports |
+| | Use integrations | Push contacts and deals to connected tools |
+| | Use AI | The assistant and AI drafting, spending shared credits |
+| **People** | Manage team | Invite, remove, re-role members |
+| | Transfer ownership | Hand ownership to another member |
+| **Sending** | Manage mailboxes | Connect, disconnect, configure senders |
+| | Send campaigns | Start, pause, resume |
+| | Use unified inbox | Read and reply from the shared inbox |
+| **Workspace** | Manage settings | Workspace-wide settings |
+| | Manage billing | Invoices and plan changes |
+| | Manage API keys | Create and revoke workspace keys |
+
+How the seeded roles map: **Viewer** holds only the two view permissions plus analytics. **Manager** adds everything operational (manage campaigns, contacts, sequences, mailboxes, send, unibox, integrations, AI). **Admin** adds team, settings, billing, and API keys. **Owner** is Admin plus ownership transfer.
+
+## Custom roles
+
+On **Roles & access**, click **New role**: a name (up to 50 characters, and only "owner" is reserved), a color, and an optional description. Pick a template under **Start from** to copy a permission bundle, then toggle individual permissions. Assign it from the roster or the invite flow.
+
+Five rules keep this safe:
+
+- **Editing a role updates everyone assigned to it immediately.** The editor shows how many members are affected before you save.
+- **You can only grant permissions you hold**, so nobody can mint a role stronger than their own.
+- **Ownership transfer can never be part of a custom role.**
+- **Members can hold several roles**, and their effective access is the union of all of them. A member left with no roles keeps membership but has no permissions.
+- Up to 25 roles per workspace, including the seeded ones.
+
+Custom roles apply everywhere permissions do: API access checks, dashboard visibility, and which realtime events a member receives.
+
+## Related guides
+
+<Cards>
+  <Card title="Campaigns" href="/guides/campaigns/" />
+  <Card title="Unified inbox" href="/guides/unibox/" />
+  <Card title="Deliverability" href="/guides/deliverability/" />
+  <Card title="Permissions reference (API keys)" href="/api/permissions/" />
+</Cards>
+
+These roles control what teammates can do in the dashboard. **API key** permissions are separate and control what programmatic integrations can do; see the [Permissions reference](/api/permissions/).

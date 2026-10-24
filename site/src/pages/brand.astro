@@ -1,0 +1,797 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroAtmosphere from '../components/HeroAtmosphere.astro';
+import Logo from '../components/Logo.astro';
+import Icon from '../components/Icon.astro';
+import CTA from '../components/CTA.astro';
+
+/* ----------------------------------------------------------------
+   PALETTE · the sky ramp + neutral system used across the marketing
+   surface. Each step is rendered as a real specimen below.
+---------------------------------------------------------------- */
+const palette = [
+  { name: 'sky-50',  token: 'sky-50',  hex: '#f0f9ff', text: 'dark'  },
+  { name: 'sky-100', token: 'sky-100', hex: '#e0f2fe', text: 'dark'  },
+  { name: 'sky-200', token: 'sky-200', hex: '#bae6fd', text: 'dark'  },
+  { name: 'sky-300', token: 'sky-300', hex: '#7dd3fc', text: 'dark'  },
+  { name: 'sky-400', token: 'sky-400', hex: '#38bdf8', text: 'light' },
+  { name: 'sky-500', token: 'sky-500', hex: '#0ea5e9', text: 'light' },
+  { name: 'sky-600', token: 'sky-600', hex: '#0284c7', text: 'light', role: 'Primary' },
+  { name: 'sky-700', token: 'sky-700', hex: '#0369a1', text: 'light', role: 'Hover'  },
+  { name: 'sky-800', token: 'sky-800', hex: '#075985', text: 'light' },
+  { name: 'sky-900', token: 'sky-900', hex: '#0c4a6e', text: 'light' },
+];
+
+/* Index of the swatch that is the primary brand color, used for the
+   bracket marker in the swatch strip. Hoisting comparisons keeps the
+   Astro JSX parser away from `<` inside `{}` blocks. */
+const primaryIdx = palette.findIndex(p => p.role === 'Primary');
+const hoverIdx   = palette.findIndex(p => p.role === 'Hover');
+const isLightStep = palette.map(p => p.text === 'light');
+
+const neutrals = [
+  { name: 'Foreground',  hex: '#0f172a', sub: 'slate-900',  cls: 'text-white' },
+  { name: 'Heading',     hex: '#0f172a', sub: 'slate-900',  cls: 'text-white' },
+  { name: 'Muted',       hex: '#64748b', sub: 'slate-500',  cls: 'text-white' },
+  { name: 'Border',      hex: '#e2e8f0', sub: 'slate-200',  cls: 'text-foreground ring-1 ring-[color:var(--border)]' },
+  { name: 'Surface 1',   hex: '#f5f8fc', sub: 'page bands', cls: 'text-foreground ring-1 ring-[color:var(--border)]' },
+  { name: 'Surface 0',   hex: '#ffffff', sub: 'card',       cls: 'text-foreground ring-1 ring-[color:var(--border)]' },
+];
+
+/* ----------------------------------------------------------------
+   VOICE · four short principles. No slop.
+---------------------------------------------------------------- */
+const voice = [
+  {
+    n: '01',
+    title: 'Plain text wins.',
+    body: 'No promo wrappers. No tracked images by default. Cold mail should look like a real message from a real person, because that is what it is.',
+  },
+  {
+    n: '02',
+    title: 'Defaults are conservative.',
+    body: 'Fifty sends a day. Ten minutes between messages. Warmup starts at ten. The defaults are where a healthy mailbox lives, not a starting line to sprint from.',
+  },
+  {
+    n: '03',
+    title: 'Numbers must be earned.',
+    body: 'No fabricated open rates. No screenshot leaderboards. If a metric is on the page it came from your account or the open-source repo.',
+  },
+  {
+    n: '04',
+    title: 'Workers stay small.',
+    body: 'We talk about workers like servers, not heroes. One worker, one IP, a few mailboxes. Volume scales by adding workers, not by overloading one.',
+  },
+];
+
+/* ----------------------------------------------------------------
+   DO / DONT cards for the wordmark + mark
+---------------------------------------------------------------- */
+const dos = [
+  { title: 'Clear space',     body: 'Keep at least the height of the mark as padding on every side.' },
+  { title: 'Sky on white',    body: 'Use the foreground mark on white surfaces. Wordmark in slate-900.' },
+  { title: 'White on sky',    body: 'On any sky-700 to sky-900 background, switch to the white mark.' },
+  { title: 'Mono on photos',  body: 'On photography or video, use the solid white or solid foreground variant.' },
+];
+
+const donts = [
+  { title: 'Do not stretch',  body: 'The wordmark and mark are fixed proportion. Never squash or skew.' },
+  { title: 'Do not recolor',  body: 'Use the foreground, white, or sky-900 variants. No off-brand color fills.' },
+  { title: 'Do not add effects', body: 'No drop shadows, no glows, no outlines, no gradients applied to the mark itself.' },
+  { title: 'Do not lock up',  body: 'Do not combine the Dakiya Mail mark with another logo into a single wordmark.' },
+];
+
+/* ----------------------------------------------------------------
+   ASSET DOWNLOADS · the marketing site links to stubs. Real files
+   live on the static CDN under /brand. Hrefs may 404 today.
+---------------------------------------------------------------- */
+const assets = [
+  { label: 'Wordmark · SVG',         href: '/brand/dakiya-wordmark.svg',         size: 'SVG' },
+  { label: 'Wordmark · PNG · 2x',    href: '/brand/dakiya-wordmark@2x.png',      size: 'PNG' },
+  { label: 'Mark · SVG',             href: '/brand/dakiya-mark.svg',             size: 'SVG' },
+  { label: 'Mark · PNG · 2x',        href: '/brand/dakiya-mark@2x.png',          size: 'PNG' },
+  { label: 'Wordmark · white · SVG', href: '/brand/dakiya-wordmark-white.svg',   size: 'SVG' },
+  { label: 'Mark · white · SVG',     href: '/brand/dakiya-mark-white.svg',       size: 'SVG' },
+  { label: 'Social avatar · 1024',   href: '/brand/social-avatar.jpg',            size: 'JPG' },
+];
+---
+<Layout
+  title="Brand Assets & Guidelines | Dakiya Mail"
+  description="The Dakiya Mail visual identity. Wordmark, mark, sky palette, typography, and usage guidance."
+>
+  <!-- ============================================================
+       HERO · matches sending / developers / warmup / campaigns
+  ============================================================ -->
+  <section class="relative isolate overflow-hidden">
+    <HeroAtmosphere />
+
+    <div class="container-page relative pt-16 md:pt-24 pb-44 md:pb-56 text-center">
+      <div class="inline-flex items-center gap-2 h-7 pl-1 pr-3 rounded-full bg-white/15 backdrop-blur ring-1 ring-white/25 text-[12px] text-white/95 shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)]">
+        <span class="inline-flex items-center h-5 px-1.5 rounded-full text-[10.5px] font-semibold uppercase tracking-[0.06em] bg-white" style="color:#0369a1;">
+          Brand
+        </span>
+        Dakiya Mail's visual identity
+      </div>
+
+      <h1 class="mt-8 md:mt-10 text-[44px] sm:text-6xl md:text-[72px] lg:text-[80px] font-semibold tracking-[-0.04em] leading-[0.98] text-white max-w-4xl mx-auto">
+        Marks, colors,<br/>type, voice.
+      </h1>
+      <p class="mt-6 text-[17px] md:text-[19px] text-white/80 max-w-2xl mx-auto leading-relaxed">
+        Everything you need to write about Dakiya Mail, build an integration, or place the logo on a slide. Free to use without asking, with one rule. Do not imply a partnership we have not agreed to.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="#assets" class="inline-flex h-11 px-5 items-center gap-2 rounded-[10px] text-[14.5px] font-semibold bg-white hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.3)] transition-all duration-200 ease-out shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18)]">
+          <span style="color:#075985;">Download assets</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#075985" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="#palette" class="inline-flex h-11 px-5 items-center rounded-[10px] text-[14.5px] font-medium bg-white/10 backdrop-blur ring-1 ring-white/40 text-white hover:bg-white/20 hover:-translate-y-0.5 transition-all duration-200 ease-out">
+          See the palette
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FLOATING SPECIMEN CARD · the mark itself, on a white card
+       that pulls up over the hero like every other landing page.
+  ============================================================ -->
+  <section class="relative -mt-36 md:-mt-44 pb-16 md:pb-24 z-10">
+    <div class="container-page">
+      <div class="rounded-[18px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden shadow-[0_40px_90px_-30px_rgba(2,32,71,0.35),0_12px_30px_-12px_rgba(15,23,42,0.12)]">
+
+        <!-- Topbar -->
+        <div class="px-6 py-3 border-b border-[color:var(--border)] flex items-baseline justify-between gap-3">
+          <div class="flex items-baseline gap-3">
+            <div class="text-[10.5px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Primary lockup</div>
+            <span class="text-[11.5px] text-foreground/55">Wordmark + mark, on white</span>
+          </div>
+          <div class="hidden md:flex items-center gap-2 text-[10.5px] font-mono text-muted-foreground">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              SVG · vector
+            </span>
+            <span class="text-foreground/25">·</span>
+            <span>v1.0</span>
+          </div>
+        </div>
+
+        <!-- Big lockup canvas with measurement marks -->
+        <div class="relative px-6 md:px-12 py-12 md:py-20 bg-[color:var(--surface-1)]/40">
+          <!-- Crosshair guides -->
+          <div class="absolute inset-x-12 top-6 h-px bg-[color:var(--border)]" aria-hidden="true"></div>
+          <div class="absolute inset-x-12 bottom-6 h-px bg-[color:var(--border)]" aria-hidden="true"></div>
+
+          <div class="relative flex items-center justify-center gap-5 md:gap-7">
+            <Logo class="w-12 h-12 md:w-16 md:h-16 text-foreground" />
+            <span class="text-[44px] md:text-[64px] font-semibold tracking-[-0.03em] text-heading leading-none">Dakiya Mail</span>
+          </div>
+
+          <!-- Caption row -->
+          <div class="mt-12 flex flex-wrap items-baseline justify-center gap-x-6 gap-y-1 text-[11px] font-mono text-muted-foreground uppercase tracking-[0.14em]">
+            <span>Mark height: 1x</span>
+            <span class="text-foreground/25">·</span>
+            <span>Wordmark cap-height: 1x</span>
+            <span class="text-foreground/25">·</span>
+            <span>Gap: 0.4x</span>
+          </div>
+        </div>
+
+        <!-- Footer strip -->
+        <div class="grid grid-cols-2 md:grid-cols-4 divide-x divide-[color:var(--border)] border-t border-[color:var(--border)] text-[11.5px]">
+          <div class="px-5 py-3">
+            <div class="text-[10px] uppercase tracking-[0.18em] font-mono text-muted-foreground">Min width</div>
+            <div class="mt-1 font-mono text-heading">96px</div>
+          </div>
+          <div class="px-5 py-3">
+            <div class="text-[10px] uppercase tracking-[0.18em] font-mono text-muted-foreground">Mark min</div>
+            <div class="mt-1 font-mono text-heading">24px</div>
+          </div>
+          <div class="px-5 py-3">
+            <div class="text-[10px] uppercase tracking-[0.18em] font-mono text-muted-foreground">Clear space</div>
+            <div class="mt-1 font-mono text-heading">1x mark height</div>
+          </div>
+          <div class="px-5 py-3">
+            <div class="text-[10px] uppercase tracking-[0.18em] font-mono text-muted-foreground">Format</div>
+            <div class="mt-1 font-mono text-heading">SVG · PNG</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       MARKS · variant grid (light, dark, mono, mark-only)
+  ============================================================ -->
+  <section id="assets" class="border-y border-[color:var(--border)] bg-white py-20 md:py-28 scroll-mt-4">
+    <div class="container-page">
+      <div class="grid lg:grid-cols-[1fr_1.7fr] gap-12 lg:gap-16 items-start">
+        <div class="lg:sticky lg:top-24" style="align-self: start;">
+          <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Marks</div>
+          <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+            Four official lockups.
+          </h2>
+          <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed max-w-md">
+            Wordmark and standalone mark, each in a light and dark variant. Use the variant with the highest contrast against the background. Nothing else is an approved usage.
+          </p>
+          <ul class="mt-6 space-y-2 text-[13.5px] text-foreground/80 max-w-md">
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>Wordmark for sign-off, footers, partner pages.</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>Mark for favicons, avatars, app tiles, OG cards.</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>SVG everywhere it is supported. PNG at 2x for raster only.</span></li>
+          </ul>
+        </div>
+
+        <div class="space-y-4">
+          <!-- 2x2 of mark variants -->
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Wordmark on light -->
+            <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+              <div class="aspect-[5/3] flex items-center justify-center bg-white">
+                <div class="flex items-center gap-3">
+                  <Logo class="w-8 h-8 text-foreground" />
+                  <span class="text-[26px] font-semibold tracking-[-0.025em] text-heading">Dakiya Mail</span>
+                </div>
+              </div>
+              <div class="px-4 py-2.5 border-t border-[color:var(--border)] flex items-center justify-between">
+                <div class="text-[10.5px] font-mono uppercase tracking-[0.14em] text-muted-foreground">Wordmark · light</div>
+                <a href="/brand/dakiya-wordmark.svg" class="text-[10.5px] font-mono text-[#0369a1] hover:underline">SVG</a>
+              </div>
+            </div>
+
+            <!-- Wordmark on dark -->
+            <div class="rounded-[14px] ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+              <div class="aspect-[5/3] flex items-center justify-center bg-[#0c4a6e]">
+                <div class="flex items-center gap-3 text-white">
+                  <Logo class="w-8 h-8 text-white" />
+                  <span class="text-[26px] font-semibold tracking-[-0.025em]">Dakiya Mail</span>
+                </div>
+              </div>
+              <div class="px-4 py-2.5 border-t border-[color:var(--border)] bg-white flex items-center justify-between">
+                <div class="text-[10.5px] font-mono uppercase tracking-[0.14em] text-muted-foreground">Wordmark · dark</div>
+                <a href="/brand/dakiya-wordmark-white.svg" class="text-[10.5px] font-mono text-[#0369a1] hover:underline">SVG</a>
+              </div>
+            </div>
+
+            <!-- Mark only · light -->
+            <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+              <div class="aspect-[5/3] flex items-center justify-center bg-white">
+                <Logo class="w-14 h-14 text-foreground" />
+              </div>
+              <div class="px-4 py-2.5 border-t border-[color:var(--border)] flex items-center justify-between">
+                <div class="text-[10.5px] font-mono uppercase tracking-[0.14em] text-muted-foreground">Mark · light</div>
+                <a href="/brand/dakiya-mark.svg" class="text-[10.5px] font-mono text-[#0369a1] hover:underline">SVG</a>
+              </div>
+            </div>
+
+            <!-- Mark only · dark -->
+            <div class="rounded-[14px] ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+              <div class="aspect-[5/3] flex items-center justify-center" style="background: radial-gradient(ellipse 130% 140% at 72% 28%, #0284c7 0%, #0369a1 25%, #075985 50%, #0c4a6e 80%, #0a3d5c 100%);">
+                <Logo class="w-14 h-14 text-white" />
+              </div>
+              <div class="px-4 py-2.5 border-t border-[color:var(--border)] bg-white flex items-center justify-between">
+                <div class="text-[10.5px] font-mono uppercase tracking-[0.14em] text-muted-foreground">Mark · brand</div>
+                <a href="/brand/dakiya-mark-white.svg" class="text-[10.5px] font-mono text-[#0369a1] hover:underline">SVG</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Size reference strip -->
+          <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6" style="box-shadow: var(--shadow-sm);">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground mb-4">Size reference</div>
+            <div class="flex items-end gap-6 md:gap-10 flex-wrap">
+              <div class="flex flex-col items-center gap-2">
+                <Logo class="w-4 h-4 text-foreground" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">16px</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <Logo class="w-6 h-6 text-foreground" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">24px</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <Logo class="w-8 h-8 text-foreground" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">32px</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <Logo class="w-12 h-12 text-foreground" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">48px</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <Logo class="w-16 h-16 text-foreground" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">64px</span>
+              </div>
+            </div>
+            <p class="mt-5 text-[12.5px] text-foreground/65 leading-relaxed">
+              The mark holds up at 16px because the angles are simple. Below 16px, use the favicon variant in <code class="font-mono text-[12px] text-[#0369a1]">/brand/favicon.ico</code> instead.
+            </p>
+          </div>
+
+          <!-- Download manifest -->
+          <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+            <div class="px-5 py-3 border-b border-[color:var(--border)] bg-[color:var(--surface-1)]/60 flex items-baseline justify-between">
+              <div class="text-[10.5px] uppercase tracking-[0.18em] font-mono text-foreground/70">Asset manifest</div>
+              <a href="/brand.zip" class="text-[11px] font-mono text-[#0369a1] hover:underline inline-flex items-center gap-1">
+                Download all
+                <Icon name="arrowRight" size={11} />
+              </a>
+            </div>
+            <div class="divide-y divide-[color:var(--border)]">
+              {assets.map((a) => (
+                <a href={a.href} class="flex items-center justify-between gap-3 px-5 py-2.5 hover:bg-[color:var(--surface-1)]/60 transition-colors">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <Icon name="arrowUpRight" size={12} class="text-foreground/40 shrink-0" />
+                    <div class="text-[12.5px] font-medium text-heading truncate">{a.label}</div>
+                  </div>
+                  <span class="text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground shrink-0">{a.size}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SOCIAL AVATAR · primary profile picture for social channels
+  ============================================================ -->
+  <section id="avatar" class="bg-[color:var(--surface-1)]/40 border-b border-[color:var(--border)] py-20 md:py-28 scroll-mt-4">
+    <div class="container-page">
+      <div class="grid lg:grid-cols-[1fr_1.4fr] gap-12 lg:gap-16 items-start">
+        <div>
+          <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Social avatar</div>
+          <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+            The profile picture.
+          </h2>
+          <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed max-w-md">
+            The Dakiya Mail profile image used across X, LinkedIn, GitHub, Product Hunt, and other social surfaces. Square crop, sky background, mark centered. Use this exact file rather than recreating it at runtime.
+          </p>
+          <ul class="mt-6 space-y-2 text-[13.5px] text-foreground/80 max-w-md">
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>Source resolution is 1024 by 1024.</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>Safe for round and square crops. The mark stays inside the inner 70 percent.</span></li>
+            <li class="flex items-start gap-2"><Icon name="check" size={13} class="text-[#0284c7] mt-1 shrink-0" /><span>Do not overlay text. Do not recolor the sky.</span></li>
+          </ul>
+          <div class="mt-7 flex flex-wrap items-center gap-3">
+            <a
+              href="/brand/social-avatar.jpg"
+              download
+              class="inline-flex h-10 px-4 items-center gap-2 rounded-[10px] text-[13.5px] font-semibold bg-foreground text-background hover:bg-foreground/85 transition-colors"
+            >
+              <Icon name="arrowRight" size={13} class="rotate-90" />
+              Download JPG
+            </a>
+            <span class="text-[11.5px] font-mono text-muted-foreground">/brand/social-avatar.jpg</span>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <!-- Full bleed avatar canvas -->
+          <div class="rounded-[18px] overflow-hidden ring-1 ring-[color:var(--border)]" style="box-shadow: var(--shadow-md);">
+            <img
+              src="/brand/social-avatar.jpg"
+              alt="Dakiya Mail social avatar: a white paper-plane mark on a sky background with soft clouds."
+              width="1024"
+              height="1024"
+              class="block w-full h-auto"
+              loading="lazy"
+            />
+          </div>
+
+          <!-- Crop previews -->
+          <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6" style="box-shadow: var(--shadow-sm);">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground mb-4">Crop preview</div>
+            <div class="flex items-end gap-6 md:gap-10 flex-wrap">
+              <div class="flex flex-col items-center gap-2">
+                <img src="/brand/social-avatar.jpg" alt="" width="48" height="48" class="w-12 h-12 rounded-full ring-1 ring-[color:var(--border)] object-cover" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">round · 48</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <img src="/brand/social-avatar.jpg" alt="" width="64" height="64" class="w-16 h-16 rounded-full ring-1 ring-[color:var(--border)] object-cover" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">round · 64</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <img src="/brand/social-avatar.jpg" alt="" width="80" height="80" class="w-20 h-20 rounded-[14px] ring-1 ring-[color:var(--border)] object-cover" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">square · 80</span>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <img src="/brand/social-avatar.jpg" alt="" width="112" height="112" class="w-28 h-28 rounded-[18px] ring-1 ring-[color:var(--border)] object-cover" />
+                <span class="text-[10.5px] font-mono text-muted-foreground">square · 112</span>
+              </div>
+            </div>
+            <p class="mt-5 text-[12.5px] text-foreground/65 leading-relaxed">
+              The mark sits within the inner 70 percent of the canvas, so the silhouette survives circular masks on profile chips.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       PALETTE · long sky ramp + neutrals
+  ============================================================ -->
+  <section id="palette" class="bg-[color:var(--surface-1)] border-b border-[color:var(--border)] py-20 md:py-28 scroll-mt-4">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Palette</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Sky ramp. Plus a neutral system.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          Ten steps from atmosphere to deep sea. Sky-600 is the primary brand color used on links and action buttons. Sky-700 is the hover state. Everything else is composition.
+        </p>
+      </div>
+
+      <!-- Ramp -->
+      <div class="rounded-[14px] overflow-hidden ring-1 ring-[color:var(--border)] bg-white">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10">
+          {palette.map((c, i) => (
+            <div
+              class="relative aspect-[2/3] p-3 flex flex-col justify-between transition-transform hover:-translate-y-0.5 duration-200"
+              style={`background: ${c.hex}; color: ${isLightStep[i] ? '#ffffff' : '#0c4a6e'};`}
+            >
+              {c.role && (
+                <span class="absolute top-2 right-2 inline-flex items-center h-4 px-1.5 rounded-sm text-[9px] font-mono uppercase tracking-[0.1em] font-semibold" style={`background: ${isLightStep[i] ? 'rgba(255,255,255,0.18)' : 'rgba(12,74,110,0.12)'};`}>
+                  {c.role}
+                </span>
+              )}
+              <div class="text-[11px] font-mono font-semibold">{c.name}</div>
+              <div>
+                <div class="text-[10px] font-mono opacity-80 uppercase">{c.hex}</div>
+                <div class="mt-0.5 text-[9.5px] font-mono opacity-60">--{c.token}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <!-- Marker row -->
+        <div class="relative border-t border-[color:var(--border)] px-3 py-3 bg-white">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 text-[10px] font-mono text-muted-foreground">
+            {palette.map((c, i) => (
+              <div class="text-center">
+                {i === primaryIdx && <span class="text-[#0284c7] font-semibold">Primary</span>}
+                {i === hoverIdx && <span class="text-[#0369a1] font-semibold">Hover</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <!-- Neutrals -->
+      <div class="mt-10">
+        <div class="text-[11px] uppercase tracking-[0.16em] font-mono text-muted-foreground mb-4">Neutral system</div>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {neutrals.map((n) => (
+            <div class={`rounded-[12px] p-4 ${n.cls}`} style={`background: ${n.hex}`}>
+              <div class="text-[12px] font-semibold">{n.name}</div>
+              <div class="mt-2 text-[10.5px] font-mono uppercase tracking-[0.1em] opacity-80">{n.hex}</div>
+              <div class="mt-0.5 text-[10px] font-mono opacity-60">{n.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- Composition example -->
+      <div class="mt-10 grid md:grid-cols-2 gap-4">
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6" style="box-shadow: var(--shadow-sm);">
+          <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground mb-4">Light surface composition</div>
+          <div class="space-y-3">
+            <a href="#" class="inline-flex h-9 px-4 items-center rounded-[8px] text-[13px] font-semibold text-white bg-[#0284c7] hover:bg-[#0369a1] transition-colors">
+              Connect a mailbox
+            </a>
+            <div class="text-[13px] text-foreground">
+              Healthy senders <span class="text-[#0284c7] font-medium">stay below 50/day</span>.
+            </div>
+            <div class="text-[11.5px] font-mono text-muted-foreground">
+              warmup.pool: <span class="text-[#0369a1]">premium</span>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-[14px] ring-1 ring-white/10 p-6" style="background: radial-gradient(ellipse 130% 140% at 72% 28%, #0284c7 0%, #0369a1 25%, #075985 50%, #0c4a6e 80%, #0a3d5c 100%);">
+          <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-white/55 mb-4">Dark surface composition</div>
+          <div class="space-y-3">
+            <a href="#" class="inline-flex h-9 px-4 items-center rounded-[8px] text-[13px] font-semibold bg-white" style="color:#075985;">
+              Connect a mailbox
+            </a>
+            <div class="text-[13px] text-white/85">
+              Healthy senders <span class="text-[#7dd3fc] font-medium">stay below 50/day</span>.
+            </div>
+            <div class="text-[11.5px] font-mono text-white/60">
+              warmup.pool: <span class="text-[#7dd3fc]">premium</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       TYPOGRAPHY · live specimens at H1 / H2 / body / mono
+  ============================================================ -->
+  <section class="border-b border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Typography</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Inter for everything. System mono for code.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          One typeface keeps the marketing site, app, and docs in the same voice. Sizes follow a small ramp tuned for tight tracking at large display sizes and relaxed leading at body sizes.
+        </p>
+      </div>
+
+      <!-- Typeface cards -->
+      <div class="grid md:grid-cols-2 gap-4 mb-10">
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Sans</div>
+            <div class="text-[10.5px] font-mono text-muted-foreground">400 / 500 / 600 / 700 / 800</div>
+          </div>
+          <div class="mt-3 text-[44px] font-semibold tracking-[-0.03em] text-heading leading-none">Inter</div>
+          <p class="mt-3 text-[13px] text-foreground/65 leading-relaxed">
+            Self-hosted via <code class="font-mono text-[12px] text-[#0369a1]">@fontsource/inter</code>. Used for every UI surface, every headline, every body paragraph.
+          </p>
+        </div>
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Mono</div>
+            <div class="text-[10.5px] font-mono text-muted-foreground">system stack</div>
+          </div>
+          <div class="mt-3 text-[44px] font-semibold tracking-[-0.01em] text-heading leading-none font-mono">ui-monospace</div>
+          <p class="mt-3 text-[13px] text-foreground/65 leading-relaxed">
+            <code class="font-mono text-[12px] text-[#0369a1]">ui-monospace, 'SF Mono', Menlo, monospace</code>. No web download. Used for code snippets, metric labels, and timestamps.
+          </p>
+        </div>
+      </div>
+
+      <!-- Specimens -->
+      <div class="space-y-3">
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 md:p-8" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4 mb-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Display · 72 / 64 · Semibold · -0.03em</div>
+            <div class="text-[10.5px] font-mono text-muted-foreground hidden md:block">h1</div>
+          </div>
+          <div class="text-[52px] md:text-[72px] font-semibold tracking-[-0.03em] leading-[1] text-heading">Cold email that lands.</div>
+        </div>
+
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 md:p-8" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4 mb-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Heading · 44 / 36 · Semibold · -0.025em</div>
+            <div class="text-[10.5px] font-mono text-muted-foreground hidden md:block">h2</div>
+          </div>
+          <div class="text-[28px] md:text-[44px] font-semibold tracking-[-0.025em] leading-[1.06] text-heading">
+            A platform built so the inbox is the default outcome.
+          </div>
+        </div>
+
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 md:p-8" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4 mb-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-muted-foreground">Body · 15.5 · Regular · 1.7 leading</div>
+            <div class="text-[10.5px] font-mono text-muted-foreground hidden md:block">p</div>
+          </div>
+          <p class="text-[15.5px] leading-relaxed text-foreground/85 max-w-2xl">
+            Most cold-email platforms reward you for sending more. Dakiya Mail rewards you for sending well. Mailbox caps default to fifty a day. Workers are capped by the sum of their mailbox budgets, not an arbitrary global number. The defaults exist because the inbox is a finite resource.
+          </p>
+        </div>
+
+        <div class="rounded-[14px] bg-[#0c1224] text-white/85 p-6 md:p-8" style="box-shadow: var(--shadow-sm);">
+          <div class="flex items-baseline justify-between gap-4 mb-4">
+            <div class="text-[10.5px] uppercase tracking-[0.16em] font-mono text-white/55">Mono · 13.5 · 1.65 leading</div>
+            <div class="text-[10.5px] font-mono text-white/55 hidden md:block">code</div>
+          </div>
+          <pre class="text-[13.5px] font-mono leading-[1.65] overflow-x-auto"><code><span style="color:#94a3b8">// Schedule a send respecting the per-mailbox cap.</span>
+scheduler.<span style="color:#a78bfa">scheduleSend</span>(&#123;
+  mailbox: <span style="color:#fde68a">"ben@acme.com"</span>,
+  campaign: <span style="color:#fde68a">"cmp_2025_q2"</span>,
+  cap:      <span style="color:#7dd3fc">50</span>,           <span style="color:#94a3b8">// emails / day</span>
+  gap:      <span style="color:#7dd3fc">600</span>,          <span style="color:#94a3b8">// seconds between sends</span>
+&#125;);</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       VOICE PRINCIPLES · 4 short principles
+  ============================================================ -->
+  <section class="bg-[color:var(--surface-1)] border-b border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="grid lg:grid-cols-[1fr_2fr] gap-12 lg:gap-16 items-start">
+        <div class="lg:sticky lg:top-24" style="align-self: start;">
+          <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Voice</div>
+          <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+            How Dakiya Mail sounds.
+          </h2>
+          <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed max-w-md">
+            Plain English. Short sentences. Numbers when they matter. If a line could come from any other SaaS site, rewrite it.
+          </p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          {voice.map((v) => (
+            <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-6 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-18px_rgba(2,32,71,0.18)] transition-all duration-200" style="box-shadow: var(--shadow-sm);">
+              <div class="text-[10.5px] uppercase tracking-[0.18em] font-mono text-[#0284c7]">{v.n}</div>
+              <div class="mt-3 text-[20px] font-semibold tracking-[-0.02em] text-heading">{v.title}</div>
+              <p class="mt-2 text-[13.5px] text-foreground/70 leading-relaxed">{v.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       DO / DON'T · side-by-side grid with visual examples
+  ============================================================ -->
+  <section class="bg-white border-b border-[color:var(--border)] py-20 md:py-28">
+    <div class="container-page">
+      <div class="max-w-3xl mb-12">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Usage</div>
+        <h2 class="text-[32px] md:text-[44px] font-semibold tracking-[-0.03em] leading-[1.05] text-heading">
+          Logo guardrails.
+        </h2>
+        <p class="mt-4 text-[15.5px] text-foreground/70 leading-relaxed">
+          A few things to do, and a few things to leave alone. The mark is simple on purpose. Effects, recolors, and combo lockups undo that on purpose.
+        </p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-6 lg:gap-10">
+        <!-- DO -->
+        <div>
+          <div class="flex items-center gap-2 mb-4">
+            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+              <Icon name="check" size={12} strokeWidth={2.4} />
+            </span>
+            <div class="text-[12px] uppercase tracking-[0.16em] font-mono text-emerald-700">Do</div>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            {dos.map((d, i) => (
+              <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden" style="box-shadow: var(--shadow-sm);">
+                <div class="aspect-[5/3] flex items-center justify-center bg-[color:var(--surface-1)]/40 relative">
+                  {i === 0 && (
+                    <div class="relative">
+                      <div class="absolute -inset-6 border border-dashed border-emerald-300/70 rounded-md" aria-hidden="true"></div>
+                      <Logo class="w-12 h-12 text-foreground" />
+                    </div>
+                  )}
+                  {i === 1 && (
+                    <div class="flex items-center gap-2 text-foreground">
+                      <Logo class="w-7 h-7 text-foreground" />
+                      <span class="text-[22px] font-semibold tracking-[-0.025em] text-heading">Dakiya Mail</span>
+                    </div>
+                  )}
+                  {i === 2 && (
+                    <div class="px-6 py-5 rounded-md" style="background:#0c4a6e;">
+                      <div class="flex items-center gap-2 text-white">
+                        <Logo class="w-7 h-7 text-white" />
+                        <span class="text-[22px] font-semibold tracking-[-0.025em]">Dakiya Mail</span>
+                      </div>
+                    </div>
+                  )}
+                  {i === 3 && (
+                    <div class="px-5 py-4 rounded-md" style="background: linear-gradient(135deg, #475569, #1e293b);">
+                      <Logo class="w-9 h-9 text-white" />
+                    </div>
+                  )}
+                </div>
+                <div class="px-4 py-3 border-t border-[color:var(--border)]">
+                  <div class="text-[13px] font-semibold text-heading">{d.title}</div>
+                  <p class="mt-0.5 text-[12px] text-foreground/65 leading-relaxed">{d.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <!-- DON'T -->
+        <div>
+          <div class="flex items-center gap-2 mb-4">
+            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </span>
+            <div class="text-[12px] uppercase tracking-[0.16em] font-mono text-rose-700">Do not</div>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            {donts.map((d, i) => (
+              <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] overflow-hidden relative" style="box-shadow: var(--shadow-sm);">
+                <div class="aspect-[5/3] flex items-center justify-center bg-[color:var(--surface-1)]/40 relative">
+                  <span class="absolute top-2 right-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-100 text-rose-700 ring-1 ring-rose-200">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  </span>
+                  {i === 0 && (
+                    <div style="transform: scaleX(1.6) scaleY(0.8);">
+                      <Logo class="w-12 h-12 text-foreground" />
+                    </div>
+                  )}
+                  {i === 1 && (
+                    <Logo class="w-12 h-12" style="color:#a855f7;" />
+                  )}
+                  {i === 2 && (
+                    <Logo class="w-12 h-12 text-foreground" style="filter: drop-shadow(0 0 12px rgba(2,132,199,0.7)) drop-shadow(0 4px 8px rgba(15,23,42,0.4));" />
+                  )}
+                  {i === 3 && (
+                    <div class="flex items-center gap-2">
+                      <Logo class="w-9 h-9 text-foreground" />
+                      <span class="text-foreground/45 text-[18px] font-light">×</span>
+                      <div class="w-9 h-9 rounded-md bg-slate-300 flex items-center justify-center text-slate-500 text-[12px] font-bold font-mono">CO</div>
+                    </div>
+                  )}
+                </div>
+                <div class="px-4 py-3 border-t border-[color:var(--border)]">
+                  <div class="text-[13px] font-semibold text-heading">{d.title}</div>
+                  <p class="mt-0.5 text-[12px] text-foreground/65 leading-relaxed">{d.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       NAMING + PRESS · final compact block
+  ============================================================ -->
+  <section class="py-20 md:py-28">
+    <div class="container-page">
+      <div class="grid md:grid-cols-2 gap-6 lg:gap-10">
+        <!-- Naming -->
+        <div class="rounded-[14px] bg-white ring-1 ring-[color:var(--border)] p-7" style="box-shadow: var(--shadow-sm);">
+          <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-[#0284c7] mb-3">Naming</div>
+          <h3 class="text-[22px] md:text-[26px] font-semibold tracking-[-0.02em] text-heading">
+            Always Dakiya Mail. One word. Capital W.
+          </h3>
+          <div class="mt-5 space-y-3 text-[13.5px] text-foreground/75">
+            <div class="flex items-baseline gap-3">
+              <span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-mono uppercase tracking-[0.1em] bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Yes</span>
+              <span class="font-medium text-heading">Dakiya Mail</span>
+            </div>
+            <div class="flex items-baseline gap-3">
+              <span class="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-mono uppercase tracking-[0.1em] bg-rose-50 text-rose-700 ring-1 ring-rose-200">No</span>
+              <span class="font-mono text-foreground/55">dakiya mail, DAKIYA MAIL, Dakiya.Mail, DakiyaMail, dakiyamail</span>
+            </div>
+            <p class="text-foreground/65 leading-relaxed pt-2">
+              In running prose, refer to the company as Dakiya Mail. Refer to the product as Dakiya Mail or as the Dakiya Mail platform. Avoid possessives on the wordmark itself in logo contexts.
+            </p>
+          </div>
+        </div>
+
+        <!-- Press -->
+        <div class="rounded-[14px] overflow-hidden ring-1 ring-white/10 text-white" style="background: radial-gradient(ellipse 130% 140% at 72% 28%, #0284c7 0%, #0369a1 25%, #075985 50%, #0c4a6e 80%, #0a3d5c 100%); box-shadow: var(--shadow-md);">
+          <div class="p-7">
+            <div class="text-[11px] uppercase tracking-[0.18em] font-mono text-white/55 mb-3">Press &amp; partnerships</div>
+            <h3 class="text-[22px] md:text-[26px] font-semibold tracking-[-0.02em] text-white">
+              Need a quote, a logo file, or an interview?
+            </h3>
+            <p class="mt-3 text-[13.5px] text-white/75 leading-relaxed max-w-md">
+              Email is the fastest way to reach us. Include the publication or context and a deadline if you have one. We try to reply within one business day.
+            </p>
+            <div class="mt-6 flex flex-wrap items-center gap-3">
+              <a href="mailto:team@dakiyamail.com" class="inline-flex h-10 px-4 items-center gap-2 rounded-[10px] text-[13.5px] font-semibold bg-white hover:bg-white/95" style="color:#075985;">
+                <Icon name="mail" size={13} />
+                team@dakiyamail.com
+              </a>
+              <a href="/brand.zip" class="inline-flex h-10 px-4 items-center gap-2 rounded-[10px] text-[13.5px] font-medium bg-white/10 backdrop-blur ring-1 ring-white/40 text-white hover:bg-white/20">
+                <Icon name="arrowRight" size={13} class="rotate-90" />
+                Download brand kit
+              </a>
+            </div>
+            <div class="mt-6 pt-6 border-t border-white/15 text-[11.5px] font-mono text-white/60 leading-relaxed">
+              Version 1.0 · Updated <time datetime="2026-05-27">May 27, 2026</time>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <CTA
+    title="Build with Dakiya Mail. Tell us if we missed an asset."
+    description="The kit ships as a single zip with SVG and PNG at 2x. Open an issue if you need a format that is not in there."
+    primaryLabel="Get the brand kit"
+    primaryHref="/brand.zip"
+    secondaryLabel="Open the repo"
+    secondaryHref="https://github.com/dakiya"
+  />
+</Layout>

@@ -1,0 +1,590 @@
+---
+import Wordmark from './Wordmark.astro';
+import Icon from './Icon.astro';
+
+interface Props {
+  /** Render as transparent over the sky hero, with light text. Becomes solid once scrolled past the hero. */
+  onSky?: boolean;
+}
+const { onSky = false } = Astro.props;
+
+const path = Astro.url.pathname;
+
+// Featured product: rendered as a full-width row above the grid, with a
+// miniature trigger -> if -> action flow as its visual.
+const productFeatured = {
+  icon: 'zap',
+  href: '/automations/',
+  title: 'Automations',
+  desc: 'When a reply lands: open the deal, ping Slack, update the CRM. A visual builder for every Dakiya Mail event.',
+  tag: 'Orchestration',
+};
+
+// Product mega-menu items (6 meaningful products)
+const products = [
+  { icon: 'flame',    href: '/warmup/',    title: 'Warmup',         desc: 'Reputation-safe pools and gradual ramps that earn placement, not just inflate it.', tag: 'Deliverability' },
+  { icon: 'webhook',  href: '/developers/', title: 'API & webhooks', desc: 'REST + HMAC-signed webhooks. Idempotency keys. Per-key scopes.',                     tag: 'Developers' },
+  { icon: 'inbox',    href: '/inbox/',     title: 'Unified inbox',  desc: 'Every reply, bounce, OOO and click across every connected mailbox, classified.',     tag: 'Triage' },
+  { icon: 'workflow', href: '/campaigns/', title: 'Campaigns',      desc: 'Multi-step sequences with branching, A/B variants and business-hour scheduling.',    tag: 'Outreach' },
+  { icon: 'chart',    href: '/analytics/', title: 'Analytics',      desc: 'Placement, complaints, bounces and warmup health, by mailbox and by worker.',        tag: 'Reporting' },
+  { icon: 'contact',  href: '/crm/',       title: 'CRM',            desc: 'Pipelines, deals, tasks and a contacts table built around cold-outbound workflow.',  tag: 'Workflow' },
+];
+
+// Use cases mega-menu items
+const useCases = [
+  { icon: 'rocket',  href: '/use-cases/founders/',    title: 'Founders',    desc: 'Run intro sequences without burning founder@.',     tag: 'Solo + early' },
+  { icon: 'users',   href: '/use-cases/agencies/',    title: 'Agencies',    desc: 'Outbound for many clients on many domains.',       tag: 'Multi-tenant' },
+  { icon: 'chart',   href: '/use-cases/sales/',       title: 'Sales teams', desc: 'Distribute sends across reps, surface positives.', tag: 'Growth' },
+  { icon: 'contact', href: '/use-cases/recruiters/',  title: 'Recruiters',  desc: 'Candidate outreach from personal mailboxes.',      tag: 'Talent' },
+  { icon: 'star',    href: '/use-cases/fundraising/', title: 'Fundraising', desc: 'A focused VC sequence that lands in the inbox.',   tag: 'Founders' },
+];
+
+type MegaItem = { icon: string; href: string; title: string; desc: string; tag: string };
+type NavItem = {
+  label: string;
+  href: string;
+  match?: string;
+  mega?: boolean;
+  megaTitle?: string;
+  megaTagline?: string;
+  megaItems?: MegaItem[];
+  megaFeatured?: MegaItem;
+};
+
+const nav: NavItem[] = [
+  {
+    label: 'Product',
+    href: '/warmup/',
+    match: '/warmup|/developers|/inbox|/campaigns|/analytics|/crm|/automations',
+    mega: true,
+    megaTitle: 'The cold-email platform.',
+    megaTagline: 'Seven systems designed to work together. Warmup that earns reputation, sending that respects it.',
+    megaItems: products,
+    megaFeatured: productFeatured,
+  },
+  {
+    label: 'Use cases',
+    href: '/use-cases/founders/',
+    match: '/use-cases',
+    mega: true,
+    megaTitle: 'Who uses Dakiya Mail.',
+    megaTagline: 'Founders, agencies, sales teams, recruiters, fundraising. Pick the closest one.',
+    megaItems: useCases,
+  },
+  { label: 'Deliverability',href: '/deliverability/',match: '/deliverability' },
+  { label: 'Pricing',       href: '/pricing/',       match: '/pricing' },
+  { label: 'Blog',          href: '/blog/',          match: '/blog' },
+  { label: 'Docs',          href: 'https://docs.dakiyamail.com' },
+];
+
+function active(match?: string) {
+  if (!match) return false;
+  // Support pipe-delimited multi-match for the Product mega item
+  const parts = match.split('|');
+  return parts.some((m) => path === m || path.startsWith(m + '/'));
+}
+---
+<header
+  id="site-header"
+  data-on-sky={onSky ? 'true' : 'false'}
+  class={[
+    'sticky top-0 z-50 transition-colors duration-200',
+    onSky ? 'header-on-sky' : 'border-b border-border/70 bg-background/70 backdrop-blur-md supports-[backdrop-filter]:bg-background/55',
+  ].join(' ')}
+>
+  <div class="container-page flex h-14 items-center gap-6">
+    <Wordmark size="md" />
+
+    <nav class="hidden lg:flex items-center gap-1 ml-2 relative">
+      {nav.map((n) => (
+        n.mega ? (
+          <div class="mega-wrapper relative" data-mega>
+            <a
+              href={n.href}
+              class={
+                'nav-link h-8 px-3 inline-flex items-center gap-1 rounded-md text-[13px] transition-colors ' +
+                (active(n.match)
+                  ? (onSky ? 'is-active' : 'text-foreground bg-surface-2')
+                  : (onSky ? '' : 'text-muted-foreground hover:text-foreground hover:bg-surface-2/60'))
+              }
+            >
+              {n.label}
+              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" class="mega-caret transition-transform duration-200" aria-hidden="true">
+                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+
+            <!-- Mega-menu · full-bleed panel, container-width inner content -->
+            <div class="mega-panel pointer-events-none opacity-0 transition-opacity duration-200 ease-out" style="position: fixed; top: 56px; left: 0; right: 0;">
+              <!-- Full-bleed chrome: spans the entire viewport -->
+              <div class="bg-white border-b border-[color:var(--border)]" style="box-shadow: 0 40px 90px -30px rgba(2,32,71,0.3), 0 12px 36px -10px rgba(15,23,42,0.08);">
+                <!-- Body: container-width content -->
+                <div class="container-page">
+                  <div class="grid lg:grid-cols-[300px_1fr]">
+                    <!-- LEFT: clean white intro block -->
+                    <div class="py-10 pr-10 border-b lg:border-b-0 lg:border-r border-[color:var(--border)]">
+                      <div class="text-[10.5px] uppercase tracking-[0.22em] font-mono text-foreground/55">{n.label}</div>
+                      <h3 class="mt-4 text-[32px] md:text-[40px] font-semibold tracking-[-0.03em] leading-[1.02] text-heading">
+                        {n.megaTitle}
+                      </h3>
+                      <p class="mt-4 text-[14px] text-foreground/65 leading-relaxed max-w-xs">
+                        {n.megaTagline}
+                      </p>
+                      <a href="https://docs.dakiyamail.com/learn/deliverability/" class="mt-6 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#0369a1] hover:text-[#075985]">
+                        Read the handbook
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      </a>
+                    </div>
+
+                    <!-- RIGHT: featured row + 3-column product grid -->
+                    <div class="flex flex-col">
+                      {n.megaFeatured && (() => {
+                        const f = n.megaFeatured;
+                        const isCurrent = path === f.href || path.startsWith(f.href);
+                        return (
+                          <a
+                            href={f.href}
+                            aria-current={isCurrent ? 'page' : undefined}
+                            class={`mega-card group flex items-center gap-6 px-7 py-5 border-b border-[color:var(--border)] ${isCurrent ? 'bg-[color:var(--sky-1)]/60' : 'hover:bg-[color:var(--surface-1)]'}`}
+                            style="transition: background-color 140ms ease-out;"
+                          >
+                            <span class="min-w-0 shrink">
+                              <span class="block text-[10px] uppercase tracking-[0.22em] font-mono text-foreground/45 mb-2">{f.tag}</span>
+                              <span class={`text-[18px] font-semibold tracking-[-0.015em] flex items-center gap-2 ${isCurrent ? 'text-[#0369a1]' : 'text-heading group-hover:text-[#0369a1]'}`} style="transition: color 140ms ease-out;">
+                                {f.title}
+                                {isCurrent && <span class="w-1.5 h-1.5 rounded-full bg-[#0284c7]"></span>}
+                              </span>
+                              <span class="mt-1 block text-[13px] text-foreground/60 leading-relaxed">{f.desc}</span>
+                            </span>
+
+                            {/* miniature flow: trigger -> if -> actions, same node language as the app */}
+                            <span class="hidden xl:flex items-center gap-1.5 ml-auto shrink-0" aria-hidden="true">
+                              <span class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white shadow-sm text-[11px] font-medium text-slate-700 whitespace-nowrap">
+                                <Icon name="zap" size={11} class="text-sky-600" />
+                                Reply lands
+                              </span>
+                              <svg width="14" height="10" viewBox="0 0 14 10" fill="none" class="text-slate-300 shrink-0"><path d="M0 5h10" stroke="currentColor" stroke-width="1.5"/><path d="m8 1.5 3.5 3.5L8 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              <span class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-sky-200 bg-gradient-to-b from-sky-50 to-white shadow-sm whitespace-nowrap">
+                                <Icon name="gitBranch" size={11} class="text-sky-600" />
+                                <span class="text-[9px] font-semibold uppercase tracking-[0.12em] text-sky-500">if</span>
+                                <span class="text-[11px] font-medium text-sky-800">positive</span>
+                              </span>
+                              <svg width="14" height="10" viewBox="0 0 14 10" fill="none" class="text-slate-300 shrink-0"><path d="M0 5h10" stroke="currentColor" stroke-width="1.5"/><path d="m8 1.5 3.5 3.5L8 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              <span class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white shadow-sm text-[11px] font-medium text-slate-700 whitespace-nowrap">
+                                <span class="inline-flex size-4 items-center justify-center rounded bg-fuchsia-50 text-fuchsia-600 ring-1 ring-fuchsia-200 text-[8.5px] font-bold">S</span>
+                                #sales
+                              </span>
+                              <svg width="14" height="10" viewBox="0 0 14 10" fill="none" class="text-slate-300 shrink-0"><path d="M0 5h10" stroke="currentColor" stroke-width="1.5"/><path d="m8 1.5 3.5 3.5L8 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              <span class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white shadow-sm text-[11px] font-medium text-slate-700 whitespace-nowrap">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-600"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>
+                                Deal opened
+                              </span>
+                            </span>
+
+                            <span class="shrink-0 ml-auto xl:ml-0 inline-flex items-center gap-1 text-[11.5px] font-medium text-foreground/45 group-hover:text-[#0369a1]" style="transition: color 140ms ease-out;">
+                              Open
+                              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </span>
+                          </a>
+                        );
+                      })()}
+                      <div class="grid grid-cols-2 lg:grid-cols-3">
+                      {(n.megaItems ?? []).map((it, i) => {
+                        const isCurrent = path === it.href || path.startsWith(it.href);
+                        const colBreak = (i + 1) % 3 !== 0;
+                        const rowBreak = i < 3;
+                        return (
+                          <a
+                            href={it.href}
+                            aria-current={isCurrent ? 'page' : undefined}
+                            style={`--stagger: ${i * 35}ms; transition: background-color 140ms ease-out;`}
+                            class={`mega-card group flex flex-col p-7 ${colBreak ? 'lg:border-r border-[color:var(--border)]' : ''} ${rowBreak ? 'border-b border-[color:var(--border)]' : ''} ${isCurrent ? 'bg-[color:var(--sky-1)]/60' : 'hover:bg-[color:var(--surface-1)]'}`}
+                          >
+                            <div class="text-[10px] uppercase tracking-[0.22em] font-mono text-foreground/45 mb-3">{it.tag}</div>
+                            <div class={`text-[18px] font-semibold tracking-[-0.015em] flex items-center gap-2 ${isCurrent ? 'text-[#0369a1]' : 'text-heading group-hover:text-[#0369a1]'}`} style="transition: color 140ms ease-out;">
+                              {it.title}
+                              {isCurrent && <span class="w-1.5 h-1.5 rounded-full bg-[#0284c7]"></span>}
+                            </div>
+                            <p class="mt-2 text-[13px] text-foreground/60 leading-relaxed flex-1">{it.desc.split('.')[0]}.</p>
+                            <div class="mt-5 inline-flex items-center gap-1 text-[11.5px] font-medium text-foreground/45 group-hover:text-[#0369a1]" style="transition: color 140ms ease-out;">
+                              Open
+                              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </div>
+                          </a>
+                        );
+                      })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Footer band: full-bleed, container-width content -->
+                <div class="border-t border-[color:var(--border)] bg-[color:var(--surface-1)]/60">
+                  <div class="container-page py-3 flex items-center justify-between text-[11.5px] font-mono">
+                    <a href="https://github.com/bitan-del/dakiya-mail" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-foreground/65 hover:text-foreground transition-colors">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.5 4.6-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+                      github.com/bitan-del/dakiya-mail
+                    </a>
+                    <div class="flex items-center gap-5 text-foreground/55">
+                      <a href="/deliverability/" class="hover:text-foreground transition-colors">Deliverability</a>
+                      <a href="/integrations/" class="hover:text-foreground transition-colors">Integrations</a>
+                      <a href="https://docs.dakiyamail.com" class="hover:text-foreground transition-colors">Docs</a>
+                      <a href="/pricing/" class="hover:text-foreground transition-colors font-semibold text-[#0369a1]">See pricing →</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <a
+            href={n.href}
+            class={
+              'nav-link h-8 px-3 inline-flex items-center rounded-md text-[13px] transition-colors ' +
+              (active(n.match)
+                ? (onSky ? 'is-active' : 'text-foreground bg-surface-2')
+                : (onSky ? '' : 'text-muted-foreground hover:text-foreground hover:bg-surface-2/60'))
+            }
+          >
+            {n.label}
+          </a>
+        )
+      ))}
+    </nav>
+
+    <div class="ml-auto flex items-center gap-2">
+      <a
+        href="https://app.dakiyamail.com/login"
+        class={
+          'cta-ghost hidden sm:inline-flex h-8 px-3 items-center rounded-md text-[13px] transition-colors ' +
+          (onSky ? '' : 'text-muted-foreground hover:text-foreground hover:bg-surface-2')
+        }
+      >
+        Log in
+      </a>
+      <a
+        href="https://app.dakiyamail.com/register"
+        class={
+          'cta-primary inline-flex h-8 px-3.5 items-center rounded-md text-[13px] font-medium transition-colors ' +
+          (onSky ? '' : 'bg-foreground text-background hover:bg-foreground/85')
+        }
+      >
+        Start free
+      </a>
+      <button
+        id="nav-toggle"
+        class={
+          'lg:hidden inline-flex h-8 w-8 items-center justify-center rounded-md ' +
+          (onSky ? 'cta-ghost' : 'text-muted-foreground hover:text-foreground hover:bg-surface-2')
+        }
+        aria-label="Open navigation"
+        aria-expanded="false"
+        aria-controls="mobile-nav"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="4" y1="7" x2="20" y2="7" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Full-screen mobile menu (outside <header> so fixed positioning is viewport-relative,
+     not clipped by the header's backdrop-filter containing block) -->
+<div
+    id="mobile-nav"
+    class="mobile-menu fixed inset-0 z-[60] lg:hidden flex flex-col bg-white text-slate-900"
+    aria-hidden="true"
+  >
+    <div class="container-page flex h-14 items-center shrink-0 border-b border-slate-200/70">
+      <a href="/" class="inline-flex items-center gap-2.5 text-slate-900">
+        <svg viewBox="0 0 746 764" class="w-6 h-6" fill="currentColor" aria-hidden="true"><path d="M146 182H600A56 56 0 0 1 656 238V526A56 56 0 0 1 600 582H146A56 56 0 0 1 90 526V238A56 56 0 0 1 146 182ZM146 232V300L373 468L600 300V232L373 400Z"/></svg>
+        <span class="font-extrabold tracking-tight text-[15.5px]">Dakiya Mail</span>
+      </a>
+      <button id="nav-close" class="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors" aria-label="Close navigation">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+
+    <nav class="container-page flex-1 overflow-y-auto py-2">
+      {nav.map((n, i) => (
+        n.mega ? (
+          <div class="mobile-link border-b border-slate-100" style={`--i:${i}`}>
+            <button type="button" class="acc-trigger w-full flex items-center justify-between py-4 text-[19px] font-medium text-slate-900" aria-expanded="false">
+              <span>{n.label}</span>
+              <svg class="acc-caret text-slate-400" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="acc-panel">
+              <div>
+                <div class="pb-3 flex flex-col">
+                  {[...(n.megaFeatured ? [n.megaFeatured] : []), ...(n.megaItems ?? [])].map((it) => (
+                    <a href={it.href} class="flex flex-col py-2 pl-1 pr-2 rounded-md hover:bg-slate-50">
+                      <span class="text-[15px] font-medium text-slate-800">{it.title}</span>
+                      <span class="text-[12.5px] text-slate-400 leading-snug">{it.desc.split('.')[0]}.</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <a href={n.href} class="mobile-link group flex items-center justify-between py-4 border-b border-slate-100 text-[19px] font-medium text-slate-900" style={`--i:${i}`}>
+            <span>{n.label}</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300 group-hover:text-slate-500 transition-colors"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+        )
+      ))}
+    </nav>
+
+    <div class="container-page py-5 shrink-0 flex flex-col gap-2.5 border-t border-slate-200/70">
+      <a href="https://app.dakiyamail.com/login" class="h-12 inline-flex items-center justify-center rounded-[11px] border border-slate-200 text-slate-700 text-[15px] font-medium hover:bg-slate-50 transition-colors">Log in</a>
+      <a href="https://app.dakiyamail.com/register" class="h-12 inline-flex items-center justify-center rounded-[11px] bg-foreground text-background text-[15px] font-medium hover:bg-foreground/85 transition-colors">Start free</a>
+    </div>
+  </div>
+
+<style>
+  /* Mega panel: only fade opacity to keep bounds stable while open */
+  .mega-panel.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* Invisible hover-bridge above the panel so cursor can travel
+     from the trigger without crossing a dead gap. */
+  .mega-panel.open::before {
+    content: '';
+    position: absolute;
+    top: -24px;
+    left: 0;
+    right: 0;
+    height: 24px;
+  }
+  .mega-wrapper.open .mega-caret { transform: rotate(180deg); }
+
+  /* Full-screen mobile menu: animates open AND closed. Display is toggled by
+     JS via .is-visible; .is-open drives the fade + slide so both run. */
+  .mobile-menu {
+    display: none;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 220ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .mobile-menu.is-visible { display: flex; }
+  .mobile-menu.is-open { opacity: 1; transform: translateY(0); }
+
+  /* staggered link entrance */
+  .mobile-menu .mobile-link { opacity: 0; transform: translateY(14px); transition: opacity 180ms ease; }
+  .mobile-menu.is-open .mobile-link {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 380ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: calc(70ms + var(--i, 0) * 48ms);
+  }
+
+  /* accordion: collapsed by default, expands on click via grid-rows */
+  .acc-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 300ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .acc-panel.open { grid-template-rows: 1fr; }
+  .acc-panel > div { overflow: hidden; }
+  .acc-caret { transition: transform 240ms ease; }
+  .acc-trigger[aria-expanded="true"] .acc-caret { transform: rotate(180deg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-menu, .mobile-menu .mobile-link, .acc-panel, .acc-caret { transition: none; }
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    // Full-screen mobile menu
+    var toggle = document.getElementById('nav-toggle');
+    var menu = document.getElementById('mobile-nav');
+    var closeBtn = document.getElementById('nav-close');
+    var closeTimer = null;
+    function openMenu() {
+      if (!menu) return;
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+      menu.classList.add('is-visible');
+      void menu.offsetWidth; // reflow so the open transition runs from the hidden state
+      menu.classList.add('is-open');
+      menu.setAttribute('aria-hidden', 'false');
+      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+      document.documentElement.style.overflow = 'hidden';
+    }
+    function closeMenu() {
+      if (!menu) return;
+      menu.classList.remove('is-open');
+      menu.setAttribute('aria-hidden', 'true');
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+      document.documentElement.style.overflow = '';
+      if (closeTimer) clearTimeout(closeTimer);
+      closeTimer = setTimeout(function () {
+        menu.classList.remove('is-visible');
+        // reset accordions so the menu reopens clean
+        Array.prototype.forEach.call(menu.querySelectorAll('.acc-trigger'), function (b) { b.setAttribute('aria-expanded', 'false'); });
+        Array.prototype.forEach.call(menu.querySelectorAll('.acc-panel'), function (p) { p.classList.remove('open'); });
+      }, 340);
+    }
+    function setMenu(open) { open ? openMenu() : closeMenu(); }
+    if (toggle) toggle.addEventListener('click', function () { setMenu(!menu.classList.contains('is-open')); });
+    if (closeBtn) closeBtn.addEventListener('click', function () { setMenu(false); });
+    if (menu) {
+      // Accordion sections (Product / Use cases): collapsed by default, expand on tap.
+      Array.prototype.forEach.call(menu.querySelectorAll('.acc-trigger'), function (btn) {
+        btn.addEventListener('click', function () {
+          var panel = btn.nextElementSibling;
+          var open = btn.getAttribute('aria-expanded') === 'true';
+          btn.setAttribute('aria-expanded', String(!open));
+          if (panel) panel.classList.toggle('open', !open);
+        });
+      });
+      // Tapping a destination link closes the menu.
+      Array.prototype.forEach.call(menu.querySelectorAll('a'), function (a) {
+        a.addEventListener('click', function () { setMenu(false); });
+      });
+    }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setMenu(false); });
+    window.addEventListener('resize', function () { if (window.innerWidth >= 1024) setMenu(false); });
+
+    // Mega-menu — hover state driven by hit-testing the cursor against
+    // both the trigger and the panel. Avoids the fixed-positioning
+    // mouseleave quirks that caused the panel to flicker shut as soon
+    // as the cursor entered it.
+    var wrappers = Array.prototype.slice.call(document.querySelectorAll('[data-mega]'));
+    var bag = [];
+    wrappers.forEach(function (wrapper) {
+      var panel = wrapper.querySelector('.mega-panel');
+      if (!panel) return;
+
+      var entry = {
+        wrapper: wrapper,
+        panel: panel,
+        closeTimer: null,
+        moveHandler: null,
+        isOpen: false,
+        forceClose: null,
+      };
+
+      function insideRect(x, y, el, padTop) {
+        if (!el) return false;
+        var r = el.getBoundingClientRect();
+        var top = r.top - (padTop || 0);
+        return x >= r.left && x <= r.right && y >= top && y <= r.bottom;
+      }
+      // The panel hit-area extends 40px above its top so the gap between
+      // the trigger and the fixed panel acts as an invisible bridge.
+      function inside(x, y, el) {
+        return el === panel ? insideRect(x, y, el, 40) : insideRect(x, y, el, 0);
+      }
+
+      function detachMoveHandler() {
+        if (entry.moveHandler) {
+          document.removeEventListener('mousemove', entry.moveHandler);
+          entry.moveHandler = null;
+        }
+      }
+
+      function forceClose() {
+        if (entry.closeTimer) { clearTimeout(entry.closeTimer); entry.closeTimer = null; }
+        detachMoveHandler();
+        entry.isOpen = false;
+        wrapper.classList.remove('open');
+        panel.classList.remove('open');
+      }
+      entry.forceClose = forceClose;
+
+      function open() {
+        // Synchronously close any other mega panel so only one is ever visible.
+        for (var i = 0; i < bag.length; i++) {
+          if (bag[i] !== entry) bag[i].forceClose();
+        }
+        if (entry.closeTimer) { clearTimeout(entry.closeTimer); entry.closeTimer = null; }
+        if (entry.isOpen) return;
+        entry.isOpen = true;
+        wrapper.classList.add('open');
+        panel.classList.add('open');
+        // Stagger-animate cards on each open
+        var cards = panel.querySelectorAll('.mega-card');
+        cards.forEach(function (c, i) {
+          c.style.opacity = '0';
+          c.style.transform = 'translateY(6px)';
+          c.style.transition = 'none';
+          setTimeout(function () {
+            c.style.transition = 'opacity 220ms ease-out, transform 280ms cubic-bezier(0.22,1,0.36,1), background-color 140ms ease-out';
+            c.style.opacity = '1';
+            c.style.transform = 'translateY(0)';
+          }, 40 + i * 32);
+        });
+        // Track cursor globally so we know when to close
+        if (!entry.moveHandler) {
+          entry.moveHandler = function (e) {
+            if (entry.closeTimer) return; // already scheduled
+            if (!inside(e.clientX, e.clientY, wrapper) && !inside(e.clientX, e.clientY, panel)) {
+              scheduleClose();
+            }
+          };
+          document.addEventListener('mousemove', entry.moveHandler);
+        }
+      }
+      function scheduleClose() {
+        if (entry.closeTimer) clearTimeout(entry.closeTimer);
+        entry.closeTimer = setTimeout(function () {
+          entry.isOpen = false;
+          wrapper.classList.remove('open');
+          panel.classList.remove('open');
+          detachMoveHandler();
+        }, 180);
+      }
+      function cancelClose() {
+        if (entry.closeTimer) { clearTimeout(entry.closeTimer); entry.closeTimer = null; }
+      }
+
+      wrapper.addEventListener('mouseenter', open);
+      panel.addEventListener('mouseenter', cancelClose);
+
+      // Keyboard support
+      wrapper.addEventListener('focusin', open);
+      wrapper.addEventListener('focusout', function (e) {
+        if (!wrapper.contains(e.relatedTarget)) scheduleClose();
+      });
+
+      bag.push(entry);
+    });
+
+    // Close on Escape (global, all panels)
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      bag.forEach(function (entry) { entry.forceClose(); });
+    });
+
+    // Hovering any non-mega nav item instantly closes any open mega panel.
+    // Picks up the desktop nav links that are not inside a [data-mega] wrapper.
+    var siblingNavLinks = document.querySelectorAll('#site-header nav .nav-link');
+    siblingNavLinks.forEach(function (link) {
+      if (link.closest('[data-mega]')) return;
+      link.addEventListener('mouseenter', function () {
+        bag.forEach(function (entry) { entry.forceClose(); });
+      });
+    });
+
+    // If the header is rendered "on sky", flip it to solid once the hero's
+    // bottom sentinel scrolls past the header.
+    var header = document.getElementById('site-header');
+    if (header && header.dataset.onSky === 'true') {
+      var sentinel = document.getElementById('hero-sentinel');
+      if (sentinel) {
+        var io = new IntersectionObserver(function (entries) {
+          var entry = entries[0];
+          if (entry.isIntersecting) {
+            header.classList.add('header-on-sky');
+            header.classList.remove('border-b', 'border-border/70', 'bg-background/70', 'backdrop-blur-md');
+          } else {
+            header.classList.remove('header-on-sky');
+            header.classList.add('border-b', 'border-border/70', 'bg-background/70', 'backdrop-blur-md');
+          }
+        }, { rootMargin: '-56px 0px 0px 0px', threshold: 0 });
+        io.observe(sentinel);
+      }
+    }
+  })();
+</script>

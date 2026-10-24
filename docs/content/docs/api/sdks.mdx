@@ -1,0 +1,189 @@
+---
+title: SDKs
+description: Official Dakiya Mail client libraries for JavaScript, Python, and Go.
+---
+
+Dakiya Mail publishes official, fully typed SDKs for JavaScript and TypeScript, Python, and Go. Each one wraps the same surface: the REST API, the OAuth2 authorization flows, and the realtime gateway. You get typed resources, auto-pagination, automatic retries, and a live event stream without hand-rolling HTTP. All three are open source and track the `v1` API.
+
+## Official libraries
+
+<Cards>
+  <Card title="dakiya-js (JavaScript and TypeScript)" href="https://github.com/bitan-del/dakiya-mail-js" />
+  <Card title="dakiya-py (Python)" href="https://github.com/bitan-del/dakiya-mail-py" />
+  <Card title="dakiya-go (Go)" href="https://github.com/bitan-del/dakiya-mail-go" />
+</Cards>
+
+| Language | Package | Runtime | Realtime |
+| --- | --- | --- | --- |
+| JavaScript and TypeScript | `dakiya` (npm) | Node 20+, Bun, Deno, browsers, edge | yes |
+| Python | `dakiya` (PyPI) | Python 3.10+, sync and async | yes |
+| Go | `github.com/bitan-del/dakiya-mail-go` | Go 1.23+ | yes |
+
+## Install
+
+<Tabs defaultValue="javascript">
+
+<TabsList>
+  <LangTab lang="javascript" />
+  <LangTab lang="python" />
+  <LangTab lang="go" />
+</TabsList>
+
+<Tab value="javascript">
+
+```bash
+npm install dakiya
+```
+
+Also available on pnpm, yarn, and bun (`pnpm add dakiya`, `yarn add dakiya`, `bun add dakiya`). On Node older than 22 the gateway needs a WebSocket: install the optional `ws` peer and the SDK picks it up automatically.
+
+</Tab>
+
+<Tab value="python">
+
+```bash
+pip install dakiya
+```
+
+Interactive OAuth2 flows and secure token storage are an optional extra: `pip install "dakiya[oauth]"`. Requires Python 3.10+.
+
+</Tab>
+
+<Tab value="go">
+
+```bash
+go get github.com/bitan-del/dakiya-mail-go
+```
+
+Requires Go 1.23+ (the auto-paging iterator uses range-over-func).
+
+</Tab>
+
+</Tabs>
+
+## Quickstart
+
+Create an API key in the dashboard under Settings, expose it as `DAKIYA_API_KEY`, then:
+
+<Tabs defaultValue="javascript">
+
+<TabsList>
+  <LangTab lang="javascript" />
+  <LangTab lang="python" />
+  <LangTab lang="go" />
+</TabsList>
+
+<Tab value="javascript">
+
+```ts
+import { Dakiya } from "dakiya";
+
+const dakiya = new Dakiya({ apiKey: process.env.DAKIYA_API_KEY });
+
+// List campaigns (auto-paginated)
+for await (const campaign of await dakiya.campaigns.list()) {
+  console.log(campaign.id, campaign.name);
+}
+```
+
+</Tab>
+
+<Tab value="python">
+
+```python
+import os
+from dakiya import Dakiya
+
+client = Dakiya(api_key=os.environ["DAKIYA_API_KEY"])
+
+for key in client.api_keys.list():
+    print(key.name, key.status)
+```
+
+`Dakiya()` reads `DAKIYA_API_KEY` from the environment on its own, and every method has an awaitable twin on `AsyncDakiya`.
+
+</Tab>
+
+<Tab value="go">
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/bitan-del/dakiya-mail-go"
+)
+
+func main() {
+	client, err := dakiya.New(dakiya.WithAPIKey("dakiya_..."))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+	page, err := client.Campaigns.List(ctx, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for campaign, err := range page.All(ctx) {
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(campaign.Name)
+	}
+}
+```
+
+</Tab>
+
+</Tabs>
+
+## Authentication
+
+Every SDK takes a bearer credential, and both credential types run through the same permission gates:
+
+- an **API key** for your own scripts (prefixed `dakiya_`)
+- an **OAuth access token** for apps acting on behalf of a workspace (prefixed `dmat_`)
+
+```ts
+// dakiya-js
+new Dakiya({ apiKey: "dakiya_..." });       // API key
+new Dakiya({ accessToken: "dmat_..." });   // OAuth access token
+```
+
+```python
+# dakiya-py (falls back to DAKIYA_API_KEY when omitted; any bearer token works)
+Dakiya(api_key="dakiya_...")
+```
+
+```go
+// dakiya-go
+dakiya.New(dakiya.WithAPIKey("dakiya_..."))
+dakiya.New(dakiya.WithAccessToken("..."))
+```
+
+For the full authorization-code and client-credentials flows (PKCE and automatic token refresh), see [OAuth](/api/oauth/). For key format, scoping, and rotation, see [Authentication](/api/authentication/).
+
+## What every SDK gives you
+
+- Typed REST resources across the whole API: mailboxes, campaigns, contacts, the unibox, analytics, templates, CRM, integrations, and webhooks.
+- OAuth2 flows built in: authorization-code with PKCE and client-credentials, plus programmatic OAuth application management.
+- A realtime gateway on one resilient WebSocket, with heartbeats, automatic reconnect, and session resume, delivering typed events. See [Realtime](/api/realtime/).
+- Resilience by default: automatic retries with exponential backoff and jitter, `Retry-After` support, and idempotency keys for safe mutation retries.
+- Cursor pagination with auto-paging iterators, so you loop over every record without tracking cursors yourself.
+- Typed errors carrying the `request_id` and a machine-readable code, matchable against named sentinels. See [Error codes](/api/error-codes/).
+- A small footprint: dakiya-js and dakiya-go ship with zero runtime dependencies.
+
+## No-code and automation
+
+Prefer a visual builder? Dakiya Mail also ships a community [n8n](https://n8n.io) node, [`n8n-nodes-dakiya`](https://github.com/dakiya/n8n-nodes-dakiya), and has first-class [Zapier](/guides/zapier/) and [Make](/guides/make/) guides.
+
+## See also
+
+- [API overview](/api/) for the base URL, versioning, and conventions
+- [Authentication](/api/authentication/) and [OAuth](/api/oauth/)
+- [Permissions](/api/permissions/) for the scopes each token can carry
+- [Realtime](/api/realtime/) for the event gateway

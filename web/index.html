@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dakiya Mail</title>
+    <meta name="apple-mobile-web-app-title" content="Dakiya Mail" />
+    <!-- Runtime config: the production image overwrites this with values from
+         container env so one build serves any deployment. Empty in dev. Loads
+         before the app module so window.__DAKIYA_ENV__ is set first. -->
+    <script src="/config.js"></script>
+    <style>
+      /* Prevent a flash of unstyled content: paint the app background
+         immediately and keep #root hidden until the stylesheet has applied
+         (main.tsx adds .app-ready on the first frame after render). */
+      html { background-color: #ffffff; }
+      #root { opacity: 0; }
+      #root.app-ready { opacity: 1; transition: opacity 120ms ease-out; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
