@@ -20,6 +20,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { NoAccess } from "@/components/layout/NoAccess";
 import addEmail from "@/lib/api/client/app/emails/addEmail";
 import buildError from "@/lib/helper/buildError";
+import type { AppError } from "@/lib/api/client/normalizeError";
 
 // Host presets. Google Workspace and Gmail share these; both need an app
 // password (Google turned off basic auth for IMAP/SMTP in May 2025).
@@ -30,6 +31,7 @@ const PRESETS = {
 } as const;
 
 type PresetKey = keyof typeof PRESETS;
+type Hosts = { label: string; smtpHost: string; smtpPort: number; imapHost: string; imapPort: number };
 type RowState = "pending" | "working" | "done" | "failed";
 
 interface ParsedRow {
@@ -73,7 +75,7 @@ function parseCSV(text: string): { rows: ParsedRow[]; bad: string[] } {
 export default function BulkImportPage() {
     const canManage = usePermission("MANAGE_EMAILS");
     const [preset, setPreset] = React.useState<PresetKey>("google");
-    const [hosts, setHosts] = React.useState(PRESETS.google);
+    const [hosts, setHosts] = React.useState<Hosts>(PRESETS.google);
     const [text, setText] = React.useState("");
     const [rows, setRows] = React.useState<ParsedRow[] | null>(null);
     const [running, setRunning] = React.useState(false);
@@ -131,7 +133,7 @@ export default function BulkImportPage() {
                     });
                     mark(item.i, { state: "done" });
                 } catch (err) {
-                    mark(item.i, { state: "failed", error: buildError(err) });
+                    mark(item.i, { state: "failed", error: buildError(err as AppError) });
                 }
             }
         };

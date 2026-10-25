@@ -18,6 +18,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { NoAccess } from "@/components/layout/NoAccess";
 import verifyAddress, { type VerificationStatus } from "@/lib/api/client/app/emails/verifyAddress";
 import buildError from "@/lib/helper/buildError";
+import type { AppError } from "@/lib/api/client/normalizeError";
 
 type RowState = "pending" | "working" | "done" | "error";
 
@@ -124,7 +125,7 @@ export default function ValidateListPage() {
                         hasMX: res.has_mx,
                     });
                 } catch (err) {
-                    mark(item.i, { state: "error", error: buildError(err) });
+                    mark(item.i, { state: "error", error: buildError(err as AppError) });
                 }
             }
         };

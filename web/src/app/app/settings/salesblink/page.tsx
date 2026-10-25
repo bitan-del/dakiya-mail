@@ -16,6 +16,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { useConfirm } from "@/hooks/context/confirm";
 import { NoAccess } from "@/components/layout/NoAccess";
 import buildError from "@/lib/helper/buildError";
+import type { AppError } from "@/lib/api/client/normalizeError";
 import {
     useConnectSalesBlink,
     useDisconnectSalesBlink,
@@ -68,7 +69,7 @@ function Connect() {
                     setApiKey("");
                     toast.success("Connected to SalesBlink.");
                 },
-                onError: (err) => toast.error(buildError(err)),
+                onError: (err) => toast.error(buildError(err as unknown as AppError)),
             },
         );
     };
@@ -157,7 +158,7 @@ function Connected() {
                     toast.success(`Enrolled ${res.enrolled} mailbox${res.enrolled === 1 ? "" : "es"}.`);
                 }
             },
-            onError: (err) => toast.error(buildError(err)),
+            onError: (err) => toast.error(buildError(err as unknown as AppError)),
         });
 
     const runDisconnect = () =>
@@ -166,7 +167,7 @@ function Connected() {
             () =>
                 disconnect.mutate(undefined, {
                     onSuccess: () => toast.success("Disconnected."),
-                    onError: (err) => toast.error(buildError(err)),
+                    onError: (err) => toast.error(buildError(err as unknown as AppError)),
                 }),
         );
 
@@ -180,7 +181,7 @@ function Connected() {
                 ramp_up_frequency: patch.ramp_up_frequency ?? link.ramp_up_frequency,
                 auto_ramp_up: patch.auto_ramp_up ?? link.auto_ramp_up,
             },
-            { onError: (err) => toast.error(buildError(err)) },
+            { onError: (err) => toast.error(buildError(err as unknown as AppError)) },
         );
     };
 
@@ -351,7 +352,7 @@ function MailboxTable({ rows, loading }: { rows: ReturnType<typeof useSalesBlink
                             <td className="py-2.5 text-right">
                                 {r.enrolled ? (
                                     <button
-                                        onClick={() => unenroll.mutate(r.email_account_id, { onError: (e) => toast.error(buildError(e)) })}
+                                        onClick={() => unenroll.mutate(r.email_account_id, { onError: (e) => toast.error(buildError(e as unknown as AppError)) })}
                                         className="text-[12.5px] text-slate-600 hover:text-slate-900"
                                     >
                                         Stop
@@ -361,7 +362,7 @@ function MailboxTable({ rows, loading }: { rows: ReturnType<typeof useSalesBlink
                                         onClick={() =>
                                             enroll.mutate(r.email_account_id, {
                                                 onSuccess: () => toast.success(`${r.email} is warming.`),
-                                                onError: (e) => toast.error(buildError(e)),
+                                                onError: (e) => toast.error(buildError(e as unknown as AppError)),
                                             })
                                         }
                                         className="text-[12.5px] text-sky-700 hover:text-sky-900"
