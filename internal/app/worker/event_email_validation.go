@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/bitan-del/dakiya-mail/internal/client/sesapi"
 	"github.com/bitan-del/dakiya-mail/internal/email"
 	"github.com/bitan-del/dakiya-mail/internal/models"
 	"github.com/getsentry/sentry-go"
@@ -51,6 +52,9 @@ func (w *WorkerService) HandleEmailValidation(ctx context.Context, data models.E
 		return email.VerifyImap(ctx, data.Credentials.IMAP.Host, data.Credentials.IMAP.Port, data.Credentials.IMAP.Username, data.Credentials.IMAP.Password)
 	})
 	probe(func() bool {
+		if region, ok := sesapi.Region(data.Credentials.SMTP.Host); ok {
+			return sesapi.Verify(ctx, region, data.Credentials.SMTP.Username, data.Credentials.SMTP.Password) == nil
+		}
 		return email.VerifySMTP(ctx, data.Credentials.SMTP.Host, data.Credentials.SMTP.Port, data.Credentials.SMTP.Username, data.Credentials.SMTP.Password)
 	})
 

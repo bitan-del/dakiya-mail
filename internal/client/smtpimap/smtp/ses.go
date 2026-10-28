@@ -1,8 +1,12 @@
 package smtp
 
 import (
+	"context"
+	"errors"
 	"strings"
 
+	"github.com/bitan-del/dakiya-mail/internal/client/sesapi"
+	"github.com/bitan-del/dakiya-mail/internal/errx"
 	"github.com/bitan-del/dakiya-mail/internal/models"
 )
 
@@ -32,4 +36,25 @@ func SESMessageID(host, reply string) string {
 		return ""
 	}
 	return strings.Trim(fields[1], "<>")
+}
+
+// sendViaSESAPI returns "Ok <id>", the same shape SES SMTP replies with, so the
+// worker reads the message id the same way for both.
+func (c *Client) sendViaSESAPI(ctx context.Context, region, from string, to []string, data []byte) (string, *errx.MailError) {
+	id, err := sesapi.Send(ctx, region, c.Credentials.Username, c.Credentials.Password, c.BindIP, from, to, data)
+	if err != nil {
+		var se *sesapi.SendError
+		if errors.As(err, &se) {
+			switch se.Kind {
+			case sesapi.FailureCredentials:
+				return "", errx.ErrMailInvalidCredentials
+			case sesapi.FailureSender:
+				return "", errx.ErrMailDomainAuthRejected
+			case sesapi.FailureRecipient:
+				return "", errx.ErrMailRecipientRejected
+			}
+		}
+		return "", errx.ErrMailServerUnreachable
+	}
+	return "Ok " + id, nil
 }

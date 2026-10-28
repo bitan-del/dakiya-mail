@@ -869,6 +869,8 @@ function SesPanel({ onDone }: { onDone: () => void }) {
     const [email, setEmail] = React.useState("");
 
     const [region, setRegion] = React.useState("us-east-1");
+    // SMTP credentials, or IAM access keys sent through the SES API.
+    const [sesMode, setSesMode] = React.useState<"smtp" | "api">("smtp");
     const [sesUser, setSesUser] = React.useState("");
     const [sesPass, setSesPass] = React.useState("");
 
@@ -883,7 +885,8 @@ function SesPanel({ onDone }: { onDone: () => void }) {
         if (!imapUserTouched.current) setImapUser(email);
     }, [email]);
 
-    const sesHost = `email-smtp.${region}.amazonaws.com`;
+    const sesHost = sesMode === "api" ? `email.${region}.amazonaws.com` : `email-smtp.${region}.amazonaws.com`;
+    const sesPort = sesMode === "api" ? 443 : 587;
 
     function valid() {
         if (!name.trim() || !email.trim()) return false;
@@ -906,12 +909,12 @@ function SesPanel({ onDone }: { onDone: () => void }) {
                         host: imapHost.trim(),
                         port: Number(imapPort),
                     },
-                    // 587 with STARTTLS: SES also offers 465, but this sender upgrades in place.
+                    // SMTP: 587 with STARTTLS. API: the email.<region> host tells the worker to call SendEmail.
                     smtp: {
                         username: sesUser.trim(),
                         password: sesPass,
                         host: sesHost,
-                        port: 587,
+                        port: sesPort,
                     },
                 }),
                 {
@@ -942,16 +945,57 @@ function SesPanel({ onDone }: { onDone: () => void }) {
                 <Field label="Region">
                     <SelectMenu value={region} onChange={setRegion} options={SES_REGIONS} fullWidth aria-label="SES region" />
                 </Field>
-                <Field label="Username">
-                    <TextInput value={sesUser} onChange={setSesUser} placeholder="SES SMTP username" autoComplete="off" ignorePasswordManagers />
+                <Field label="Connect with">
+                    <div className="flex gap-1.5">
+                        {([
+                            ["smtp", "SMTP credentials"],
+                            ["api", "API access keys"],
+                        ] as const).map(([mode, label]) => (
+                            <button
+                                key={mode}
+                                type="button"
+                                onClick={() => setSesMode(mode)}
+                                className={cn(
+                                    "h-7 px-2.5 rounded-md border text-[12px] transition-colors",
+                                    sesMode === mode ? "border-sky-200 bg-sky-50 text-sky-700" : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                                )}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                 </Field>
-                <Field label="Password">
-                    <TextInput value={sesPass} onChange={setSesPass} placeholder="SES SMTP password" type="password" autoComplete="new-password" ignorePasswordManagers />
+                <Field label={sesMode === "api" ? "Key ID" : "Username"}>
+                    <TextInput
+                        value={sesUser}
+                        onChange={setSesUser}
+                        placeholder={sesMode === "api" ? "AKIA…" : "SES SMTP username"}
+                        autoComplete="off"
+                        ignorePasswordManagers
+                    />
                 </Field>
-                <p className="pl-[76px] text-[11.5px] text-slate-500 leading-relaxed">
-                    Sends through <code className="text-slate-700">{sesHost}:587</code>. Create SMTP credentials in the SES console under{" "}
-                    <span className="text-slate-700">SMTP settings</span>; they are not your AWS access keys.
-                </p>
+                <Field label={sesMode === "api" ? "Secret" : "Password"}>
+                    <TextInput
+                        value={sesPass}
+                        onChange={setSesPass}
+                        placeholder={sesMode === "api" ? "Secret access key" : "SES SMTP password"}
+                        type="password"
+                        autoComplete="new-password"
+                        ignorePasswordManagers
+                    />
+                </Field>
+                {sesMode === "api" ? (
+                    <p className="pl-[76px] text-[11.5px] text-slate-500 leading-relaxed">
+                        Sends through the SES API in <code className="text-slate-700">{region}</code>. Use an IAM user whose only permissions are{" "}
+                        <code className="text-slate-700">ses:SendRawEmail</code>, <code className="text-slate-700">ses:SendEmail</code> and{" "}
+                        <code className="text-slate-700">ses:GetAccount</code>.
+                    </p>
+                ) : (
+                    <p className="pl-[76px] text-[11.5px] text-slate-500 leading-relaxed">
+                        Sends through <code className="text-slate-700">{sesHost}:587</code>. Create SMTP credentials in the SES console under{" "}
+                        <span className="text-slate-700">SMTP settings</span>; they are not your AWS access keys.
+                    </p>
+                )}
             </Section>
 
             <Section title="Inbox" sub="Where replies land, over IMAP" icon={<InboxIcon className="w-3.5 h-3.5" />}>
