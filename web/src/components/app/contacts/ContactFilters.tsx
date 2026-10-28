@@ -92,7 +92,7 @@ export default function ContactFilters({
     const reset = () => {
         const empty: SearchContacts = {
             query: "",
-            filters: [],
+            custom_field_filters: [],
             campaign_ids: activeCampaign ? [activeCampaign.id] : [],
             sort_by: "created_at",
             reverse: false,
@@ -155,16 +155,16 @@ export default function ContactFilters({
 
                             <Section
                                 label="Custom field filters"
-                                count={draft.filters.length}
+                                count={draft.custom_field_filters.length}
                                 actions={
-                                    draft.filters.length < 100 ? (
+                                    draft.custom_field_filters.length < 100 ? (
                                         <button
                                             type="button"
                                             onClick={() =>
                                                 setDraft((s) => ({
                                                     ...s,
-                                                    filters: [
-                                                        ...s.filters,
+                                                    custom_field_filters: [
+                                                        ...s.custom_field_filters,
                                                         { name: "", value: "", type: "contains" },
                                                     ],
                                                 }))
@@ -178,19 +178,19 @@ export default function ContactFilters({
                                 }
                             />
                             <div className="px-4 py-2 space-y-2">
-                                {draft.filters.length === 0 ? (
+                                {draft.custom_field_filters.length === 0 ? (
                                     <p className="text-[11.5px] text-slate-400 py-2">
                                         Add a filter to query custom contact properties.
                                     </p>
                                 ) : (
-                                    draft.filters.map((f, i) => (
+                                    draft.custom_field_filters.map((f, i) => (
                                         <FilterRow
                                             key={i}
                                             value={f}
                                             onChange={(updated) =>
                                                 setDraft((s) => ({
                                                     ...s,
-                                                    filters: s.filters.map((it, idx) =>
+                                                    custom_field_filters: s.custom_field_filters.map((it, idx) =>
                                                         idx === i ? updated : it,
                                                     ),
                                                 }))
@@ -198,7 +198,7 @@ export default function ContactFilters({
                                             onRemove={() =>
                                                 setDraft((s) => ({
                                                     ...s,
-                                                    filters: s.filters.filter((_, idx) => idx !== i),
+                                                    custom_field_filters: s.custom_field_filters.filter((_, idx) => idx !== i),
                                                 }))
                                             }
                                         />
@@ -628,7 +628,7 @@ function toIsoDate(d: Date): string {
 function countActiveFilters(f: SearchContacts, hasCampaignContext: boolean): number {
     let n = 0;
     if (f.query) n++;
-    n += f.filters.length;
+    n += f.custom_field_filters.length;
     if (f.subscribed !== undefined) n++;
     if (f.lead_status) n++;
     if (f.engagement) n++;

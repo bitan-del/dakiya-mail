@@ -96,7 +96,7 @@ function presetFields(p: "basic" | "full" | "campaign-ready" | "custom"): string
 function hasActiveFilters(f: SearchContacts): boolean {
     return (
         !!f.query ||
-        f.filters.length > 0 ||
+        f.custom_field_filters.length > 0 ||
         (f.campaign_ids?.length ?? 0) > 0 ||
         (f.category_ids?.length ?? 0) > 0 ||
         f.subscribed !== undefined ||

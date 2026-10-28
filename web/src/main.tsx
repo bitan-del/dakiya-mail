@@ -86,6 +86,7 @@ import ConnectPage from './app/connect/page';
 import CloudOAuthDonePage from './app/cloud-oauth/done/page';
 import DakiyaCloudSettingsPage from './app/app/settings/dakiya-cloud/page';
 import SalesBlinkSettingsPage from './app/app/settings/salesblink/page';
+import WebsiteTrackingSettingsPage from './app/app/settings/tracking/page';
 import SetupPage from './app/setup/page';
 import SSOCallbackPage from './app/auth/sso/page';
 
@@ -366,6 +367,7 @@ const router = createBrowserRouter([
               { path: "salesblink", element: <SalesBlinkSettingsPage /> },
               { path: "oauth-apps", element: <OAuthAppsPage /> },
               { path: "webhooks", element: <WebhooksSettingsPage /> },
+              { path: "tracking", element: <WebsiteTrackingSettingsPage /> },
               { path: "connections", element: <ConnectionsSettingsPage /> },
               { path: "data", element: <DataSettingsPage /> },
               { path: "danger", element: <DangerSettingsPage /> },
