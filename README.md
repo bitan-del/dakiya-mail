@@ -91,7 +91,7 @@ KMS if you prefer. See [architecture](docs/content/docs/development/architecture
 
 ## Quick start
 
-With Docker, Go 1.25 and pnpm installed:
+With Docker, Go 1.26 and pnpm installed:
 
 ```bash
 git clone https://github.com/bitan-del/dakiya-mail && cd dakiya-mail
