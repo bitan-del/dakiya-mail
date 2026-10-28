@@ -56,6 +56,9 @@ import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
 import { TEMPLATE_PRESETS, type TemplatePreset } from "./presets";
 
+// The builder pulls in GrapesJS, so it loads only when opened.
+const EmailBuilder = React.lazy(() => import("@/components/app/templates/EmailBuilder"));
+
 // Standard merge fields come from the shared catalog (@/lib/templateVars) so
 // this surface never drifts from the campaign editor or the send-time renderer.
 const VARIABLE_HINTS = VARIABLES;
@@ -458,6 +461,7 @@ function TemplateEditor({
     const [subject, setSubject] = React.useState("");
     const [bodyPlain, setBodyPlain] = React.useState("");
     const [bodyHTML, setBodyHTML] = React.useState("");
+    const [builderOpen, setBuilderOpen] = React.useState(false);
     const [showHTML, setShowHTML] = React.useState(false);
     const [activePresetId, setActivePresetId] = React.useState<string | null>(null);
 
@@ -659,11 +663,30 @@ function TemplateEditor({
                                         Also send an HTML body
                                     </label>
                                     {showHTML && (
-                                        <div className="ml-auto">
+                                        <div className="ml-auto flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setBuilderOpen(true)}
+                                                className="h-6 px-2 rounded border border-slate-200 hover:border-slate-300 text-[11px] text-slate-700"
+                                            >
+                                                Design visually
+                                            </button>
                                             <VariableMenu onPick={(v) => insertVariable("html", v)} />
                                         </div>
                                     )}
                                 </div>
+                                {builderOpen && (
+                                    <React.Suspense fallback={null}>
+                                        <EmailBuilder
+                                            initialHTML={bodyHTML}
+                                            onClose={() => setBuilderOpen(false)}
+                                            onSave={(html) => {
+                                                setBodyHTML(html);
+                                                setBuilderOpen(false);
+                                            }}
+                                        />
+                                    </React.Suspense>
+                                )}
                                 {showHTML && (
                                     <textarea
                                         value={bodyHTML}
