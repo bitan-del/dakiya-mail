@@ -118,7 +118,7 @@ export default function ContactsTable({
 
     const [searchProps, setSearchProps] = React.useState<SearchContacts>({
         query: "",
-        filters: [],
+        custom_field_filters: [],
         campaign_ids: current_campaign ? [current_campaign.id] : [],
         sort_by: "created_at",
         reverse: false,
@@ -593,9 +593,9 @@ export default function ContactsTable({
                     onClick={() => setFiltersOpen(true)}
                 >
                     Filters
-                    {searchProps.filters.length > 0 && (
+                    {searchProps.custom_field_filters.length > 0 && (
                         <span className="ml-1 font-mono text-[10px] text-sky-600 tabular-nums">
-                            {searchProps.filters.length}
+                            {searchProps.custom_field_filters.length}
                         </span>
                     )}
                 </TopbarAction>

@@ -63,7 +63,7 @@ export default function AddFromContactsDialog({ open, onClose, campaign }: Props
     const options = React.useMemo<SearchContacts>(
         () => ({
             query: debounced,
-            filters: [],
+            custom_field_filters: [],
             campaign_ids: [],
             category_ids: categoryIds.length > 0 ? categoryIds : undefined,
             sort_by: "created_at",

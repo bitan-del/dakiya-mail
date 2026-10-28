@@ -1105,7 +1105,7 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 		provider = "manual"
 	}
 
-	if err := s.repo.CreateDeliverabilityEvent(ctx, &models.DeliverabilityEvent{
+	inserted, err := s.repo.CreateDeliverabilityEvent(ctx, &models.DeliverabilityEvent{
 		OrganizationID: organizationID,
 		CampaignID:     req.CampaignID,
 		TaskID:         req.TaskID,
@@ -1116,8 +1116,13 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 		Reason:         req.Reason,
 		IdempotencyKey: idempotencyKey,
 		Metadata:       req.Metadata,
-	}); err != nil {
+	})
+	if err != nil {
 		return toErrx(err)
+	}
+	// A redelivered event (provider retry, re-synced NDR) must not re-run suppression, counters or webhooks.
+	if !inserted {
+		return nil
 	}
 
 	settings, err := s.repo.GetOutreachSettings(ctx, organizationID)
