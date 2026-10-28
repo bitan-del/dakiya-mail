@@ -498,3 +498,26 @@ func DefaultAdvancedOutreachSettings() AdvancedOutreachSettings {
 		Custom: map[string]interface{}{},
 	}
 }
+
+// DeliverabilityEventFilter narrows the events log. Empty fields match everything.
+type DeliverabilityEventFilter struct {
+	Types          []DeliverabilityEventType
+	CampaignID     *uuid.UUID
+	EmailAccountID *uuid.UUID
+	Query          string
+	From           *time.Time
+	To             *time.Time
+}
+
+// DeliverabilityEventRow is one events-log row with the names the dashboard shows.
+type DeliverabilityEventRow struct {
+	DeliverabilityEvent
+	CampaignName   string     `json:"campaign_name,omitempty"`
+	EmailAccountID *uuid.UUID `json:"email_account_id,omitempty"`
+	MailboxEmail   string     `json:"mailbox_email,omitempty"`
+}
+
+type DeliverabilityEventListResult struct {
+	Data       []DeliverabilityEventRow `json:"data"`
+	Pagination Pagination               `json:"pagination"`
+}

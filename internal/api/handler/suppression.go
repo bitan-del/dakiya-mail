@@ -208,3 +208,82 @@ func (h *Handler) DeleteSuppressionHashList(c *gin.Context) {
 	h.auditOrg(c, models.AuditActionDelete, models.AuditEntitySuppression, nil, nil, map[string]string{"list_name": req.ListName, "algo": string(req.Algo)})
 	c.JSON(http.StatusOK, gin.H{"removed": n})
 }
+
+var knownDeliverabilityEventTypes = map[models.DeliverabilityEventType]bool{
+	models.DeliverabilityEventBounce:      true,
+	models.DeliverabilityEventComplaint:   true,
+	models.DeliverabilityEventUnsubscribe: true,
+	models.DeliverabilityEventOpen:        true,
+	models.DeliverabilityEventClick:       true,
+	models.DeliverabilityEventReply:       true,
+	models.DeliverabilityEventDelivered:   true,
+	models.DeliverabilityEventDeferred:    true,
+}
+
+func (h *Handler) ListDeliverabilityEvents(c *gin.Context) {
+	orgID := middleware.GetOrganizationID(c)
+	if orgID == nil {
+		errx.JSON(c, errx.New(errx.BadRequest, "no organization selected"))
+		return
+	}
+	bad := func(msg string) { errx.JSON(c, errx.New(errx.BadRequest, msg)) }
+
+	var f models.DeliverabilityEventFilter
+	if raw := strings.TrimSpace(c.Query("type")); raw != "" {
+		for _, t := range strings.Split(raw, ",") {
+			et := models.DeliverabilityEventType(strings.TrimSpace(t))
+			if !knownDeliverabilityEventTypes[et] {
+				bad("unknown event type " + string(et))
+				return
+			}
+			f.Types = append(f.Types, et)
+		}
+	}
+	for key, dst := range map[string]**uuid.UUID{"campaign_id": &f.CampaignID, "email_account_id": &f.EmailAccountID} {
+		if raw := c.Query(key); raw != "" {
+			id, err := uuid.Parse(raw)
+			if err != nil {
+				bad("invalid " + key)
+				return
+			}
+			*dst = &id
+		}
+	}
+	for key, dst := range map[string]**time.Time{"from": &f.From, "to": &f.To} {
+		if raw := c.Query(key); raw != "" {
+			t, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				bad(key + " must be an RFC 3339 timestamp")
+				return
+			}
+			*dst = &t
+		}
+	}
+	f.Query = c.Query("q")
+
+	var cursor *uuid.UUID
+	if raw := c.Query("cursor"); raw != "" {
+		id, err := paging.DecodeUUID(raw)
+		if err != nil {
+			bad("invalid cursor")
+			return
+		}
+		cursor = &id
+	}
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		l, err := strconv.Atoi(raw)
+		if err != nil || l < 1 || l > 200 {
+			bad("limit must be between 1 and 200")
+			return
+		}
+		limit = l
+	}
+
+	res, xerr := h.AdvancedService.ListDeliverabilityEvents(c.Request.Context(), *orgID, f, limit, cursor)
+	if xerr != nil {
+		errx.JSON(c, xerr)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}

@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangleIcon, ArrowUpRightIcon, CheckIcon, RefreshCcwIcon, SlidersHorizontalIcon } from "lucide-react";
-import { EmptyBlock, Page, PageBody, PageTopbar, SectionBar, Stat, StatStrip } from "@/components/layout/Page";
+import { EmptyBlock, Page, PageBody, PageTopbar, SectionBar, Stat, StatStrip, TopbarAction } from "@/components/layout/Page";
 import { MultiTrend, type TrendSeries } from "@/components/ui/charts";
 import { TONE_DOT } from "@/components/ui/tones";
 import { DitherStack, type DitherTone } from "@/components/ui/dither";
@@ -168,6 +168,9 @@ export default function DeliverabilityPage() {
     return (
         <Page>
             <PageTopbar eyebrow="Deliverability" subtitle="Inbox placement, bounce, and complaint health across your mailboxes">
+                <TopbarAction variant="ghost" href="/app/deliverability/events">
+                    Events log
+                </TopbarAction>
                 <CustomizeMenu hidden={view.hidden} onToggle={toggleSection} />
                 <RangeTabs value={view.range} onChange={(range) => updateView({ ...view, range })} />
             </PageTopbar>

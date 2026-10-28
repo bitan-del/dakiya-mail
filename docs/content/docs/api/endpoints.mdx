@@ -191,7 +191,10 @@ The `agent-drafts` endpoints back the [inbox agent](/guides/inbox-agent/): the a
 |--------|------|----------------|
 | GET | `/analytics/*` (dashboard, deliverability, warmup, campaigns, accounts, usage) | `READ_ANALYTICS` |
 | GET | `/deliverability/postmaster` | `READ_ANALYTICS` |
+| GET | `/deliverability/events` | `READ_ANALYTICS` |
 | GET | `/audit-logs` | `READ_AUDIT_LOGS` |
+
+`GET /deliverability/events` pages the [events log](/guides/deliverability/#events-log), newest first. Filters: `type` (comma-separated: `delivered`, `deferred`, `bounce`, `complaint`, `unsubscribe`, `open`, `click`, `reply`), `campaign_id`, `email_account_id`, `q` (recipient or reason), `from` and `to` (RFC 3339), plus `cursor` and `limit` (1 to 200). Each row carries the campaign name and sending mailbox when the event is tied to a send; an unknown type or a malformed timestamp is a `400`.
 
 `GET /deliverability/postmaster` returns Gmail's own view of one sending domain, from Google Postmaster Tools. See [Gmail Postmaster Tools](/guides/deliverability/#gmail-postmaster-tools) for what the numbers mean and how to connect Google.
 

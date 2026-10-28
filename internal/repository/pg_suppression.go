@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -215,4 +216,66 @@ func (r *advancedOutreachRepository) EachSuppressedEmail(ctx context.Context, or
 		}
 	}
 	return rows.Err()
+}
+
+// ListDeliverabilityEvents pages the organization's events log, newest first.
+func (r *advancedOutreachRepository) ListDeliverabilityEvents(ctx context.Context, organizationID uuid.UUID, f models.DeliverabilityEventFilter, limit int, cursor *uuid.UUID) (*models.DeliverabilityEventListResult, error) {
+	types := make([]string, 0, len(f.Types))
+	for _, t := range f.Types {
+		types = append(types, string(t))
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT de.id, de.organization_id, de.campaign_id, de.task_id, de.contact_id, de.event_type,
+		       de.provider, de.recipient_email, de.reason, de.metadata, de.created_at,
+		       COALESCE(c.name, ''), t.email_account_id, COALESCE(ea.email, '')
+		FROM deliverability_events de
+		LEFT JOIN campaigns c ON c.id = de.campaign_id
+		LEFT JOIN tasks t ON t.id = de.task_id
+		LEFT JOIN email_accounts ea ON ea.id = t.email_account_id
+		WHERE de.organization_id = $1
+		  AND (cardinality($2::text[]) = 0 OR de.event_type = ANY($2))
+		  AND ($3::uuid IS NULL OR de.campaign_id = $3)
+		  AND ($4::uuid IS NULL OR t.email_account_id = $4)
+		  AND ($5 = '' OR de.recipient_email ILIKE '%' || $5 || '%' OR de.reason ILIKE '%' || $5 || '%')
+		  AND ($6::timestamptz IS NULL OR de.created_at >= $6)
+		  AND ($7::timestamptz IS NULL OR de.created_at < $7)
+		  AND ($8::uuid IS NULL OR (de.created_at, de.id) < (
+			SELECT created_at, id FROM deliverability_events WHERE id = $8 AND organization_id = $1
+		  ))
+		ORDER BY de.created_at DESC, de.id DESC
+		LIMIT $9
+	`, organizationID, types, f.CampaignID, f.EmailAccountID, strings.TrimSpace(f.Query), f.From, f.To, cursor, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.DeliverabilityEventRow, 0, limit)
+	for rows.Next() {
+		var row models.DeliverabilityEventRow
+		var metadata []byte
+		if err := rows.Scan(
+			&row.ID, &row.OrganizationID, &row.CampaignID, &row.TaskID, &row.ContactID, &row.EventType,
+			&row.Provider, &row.RecipientEmail, &row.Reason, &metadata, &row.CreatedAt,
+			&row.CampaignName, &row.EmailAccountID, &row.MailboxEmail,
+		); err != nil {
+			return nil, err
+		}
+		if len(metadata) > 0 {
+			_ = json.Unmarshal(metadata, &row.Metadata)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	res := &models.DeliverabilityEventListResult{}
+	if len(out) > limit {
+		res.Pagination.HasMore = true
+		res.Pagination.NextCursor = paging.EncodeUUID(out[limit-1].ID)
+		out = out[:limit]
+	}
+	res.Data = out
+	return res, nil
 }

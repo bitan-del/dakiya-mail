@@ -43,6 +43,7 @@ type AdvancedOutreachRepository interface {
 	// CreateDeliverabilityEvent reports false when the idempotency key was already recorded.
 	CreateDeliverabilityEvent(ctx context.Context, event *models.DeliverabilityEvent) (bool, error)
 	GetDeliverabilityDashboard(ctx context.Context, organizationID uuid.UUID, from, to time.Time) (*models.DeliverabilityDashboard, error)
+	ListDeliverabilityEvents(ctx context.Context, organizationID uuid.UUID, f models.DeliverabilityEventFilter, limit int, cursor *uuid.UUID) (*models.DeliverabilityEventListResult, error)
 
 	StartTaskExecution(ctx context.Context, taskID uuid.UUID, executionKey string, metadata map[string]interface{}) (bool, error)
 	CompleteTaskExecution(ctx context.Context, taskID uuid.UUID, executionKey, status string, metadata map[string]interface{}) error
