@@ -50,7 +50,8 @@ type Attachment struct {
 }
 
 // Send submits the message and returns the exact RFC 5322 bytes it put on the
-// wire, so the caller can file the same copy in the mailbox's Sent folder.
+// wire, so the caller can file the same copy in the mailbox's Sent folder, plus
+// the text of the server's final 250 reply (SES puts its message id there).
 // The bytes are returned even on failure: they are useful in a log, and a
 // caller that ignores them is unaffected.
 func (c *Client) Send(
@@ -61,7 +62,7 @@ func (c *Client) Send(
 	inReplyTo string,
 	attachments []Attachment,
 	customHeaders ...map[string]string,
-) ([]byte, *errx.MailError) {
+) ([]byte, string, *errx.MailError) {
 	from := mail.Address{Address: c.Email, Name: fmt.Sprintf("%s %s", c.FirstName, c.LastName)}
 
 	// ----- Headers -----
@@ -113,7 +114,8 @@ func (c *Client) Send(
 	recipients = append(recipients, mailhdr.BareList(bcc)...)
 
 	raw := msg.Bytes()
-	return raw, c.sendRaw(ctx, from.Address, recipients, raw)
+	reply, merr := c.sendRaw(ctx, from.Address, recipients, raw)
+	return raw, reply, merr
 }
 
 // writeAlternativeBody writes a multipart/alternative message (text/plain +
@@ -225,7 +227,8 @@ func ehloName(override string, osHostname func() (string, error)) string {
 	return ""
 }
 
-func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []byte) *errx.MailError {
+// sendRaw returns the text of the server's final reply to DATA on success.
+func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []byte) (string, *errx.MailError) {
 	var host string
 	var port int
 
@@ -242,21 +245,21 @@ func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []b
 	dialer := netbind.Dialer(c.BindIP)
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 	defer conn.Close()
 
 	// Use the resolved host: c.Credentials is nil for OAuth2-configured clients.
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 	defer client.Quit()
 
 	// Hello is only legal before any other command; StartTLS re-sends EHLO with this name.
 	if name := ehloName(os.Getenv(envEHLOHostname), os.Hostname); name != "" {
 		if err := client.Hello(name); err != nil {
-			return errx.ErrMailServerUnreachable
+			return "", errx.ErrMailServerUnreachable
 		}
 	}
 
@@ -269,10 +272,10 @@ func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []b
 	// production, where the env var is unset.
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		if err := client.StartTLS(tlsConf); err != nil {
-			return errx.ErrMailServerUnreachable
+			return "", errx.ErrMailServerUnreachable
 		}
 	} else if !netbind.InsecureTLS() {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 
 	// --- Auth ---
@@ -280,7 +283,7 @@ func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []b
 	case models.AuthPlain:
 		auth := smtp.PlainAuth("", c.Credentials.Username, c.Credentials.Password, c.Credentials.Host)
 		if err := client.Auth(auth); err != nil {
-			return errx.ErrMailInvalidCredentials
+			return "", errx.ErrMailInvalidCredentials
 		}
 	case models.AuthOAuth2:
 		tk, err := c.Oauth2.Token.Token()
@@ -288,49 +291,62 @@ func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []b
 			var rErr *oauth2.RetrieveError
 			if errors.As(err, &rErr) {
 				if rErr.Response.StatusCode >= 500 {
-					return errx.ErrMailServerUnreachable
+					return "", errx.ErrMailServerUnreachable
 				}
 			}
-			return errx.ErrMailAuthenticationFailed
+			return "", errx.ErrMailAuthenticationFailed
 		}
 
 		auth := newOAuth2Auth(c.Email, tk.AccessToken)
 		if err := client.Auth(auth); err != nil {
-			return errx.ErrMailAuthenticationFailed
+			return "", errx.ErrMailAuthenticationFailed
 		}
 	}
 
 	if err := client.Mail(from); err != nil {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 	for _, r := range to {
 		if err := client.Rcpt(r); err != nil {
 			// A domain-authentication refusal is about OUR domain, not this
 			// recipient; suppressing the address would punish the wrong party.
 			if isDomainAuthRejection(err) {
-				return errx.ErrMailDomainAuthRejected
+				return "", errx.ErrMailDomainAuthRejected
 			}
 			// A refused RCPT is a recipient problem (bad address, policy
 			// rejection), not a dead server; classifying it as unreachable
 			// hid rejections from bounce accounting.
-			return errx.ErrMailRecipientRejected
+			return "", errx.ErrMailRecipientRejected
 		}
 	}
-	w, err := client.Data()
+	// DATA is driven by hand rather than client.Data(): its Close discards the
+	// final reply text, which is where SES returns the id its events name.
+	id, err := client.Text.Cmd("DATA")
 	if err != nil {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
+	client.Text.StartResponse(id)
+	_, _, err = client.Text.ReadResponse(354)
+	client.Text.EndResponse(id)
+	if err != nil {
+		return "", errx.ErrMailServerUnreachable
+	}
+	w := client.Text.DotWriter()
 	if _, err := w.Write(data); err != nil {
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 	if err := w.Close(); err != nil {
+		return "", errx.ErrMailServerUnreachable
+	}
+	_, reply, err := client.Text.ReadResponse(250)
+	if err != nil {
 		// The server's verdict on the whole message lands here, which is where
 		// Microsoft returns 5.7.515. Retrying it as an outage never succeeds.
 		if isDomainAuthRejection(err) {
-			return errx.ErrMailDomainAuthRejected
+			return "", errx.ErrMailDomainAuthRejected
 		}
-		return errx.ErrMailServerUnreachable
+		return "", errx.ErrMailServerUnreachable
 	}
 
-	return nil
+	return reply, nil
 }

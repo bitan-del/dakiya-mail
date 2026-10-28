@@ -116,6 +116,10 @@ const (
 	DeliverabilityEventOpen        DeliverabilityEventType = "open"
 	DeliverabilityEventClick       DeliverabilityEventType = "click"
 	DeliverabilityEventReply       DeliverabilityEventType = "reply"
+	// Delivered and deferred come from provider feeds (SES via SNS). They are
+	// recorded for the events log and never suppress.
+	DeliverabilityEventDelivered DeliverabilityEventType = "delivered"
+	DeliverabilityEventDeferred  DeliverabilityEventType = "deferred"
 )
 
 type DeliverabilityEvent struct {

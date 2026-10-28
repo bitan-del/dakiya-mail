@@ -14,11 +14,13 @@ import type { IntegrationProvider } from "@/lib/api/models/app/integrations/Inte
 const PROVIDER_NAMES: Partial<Record<IntegrationProvider, string>> = {
     calendly: "Calendly",
     cal_com: "Cal.com",
+    amazon_ses: "Amazon SES",
 };
 
 const HINTS: Partial<Record<IntegrationProvider, string>> = {
     calendly: "Paste this in Calendly under Account, Integrations, Webhooks, Create Webhook. Subscribe to invitee.created.",
     cal_com: "Paste this in Cal.com under Settings, Developer, Webhooks. Subscribe to BOOKING_CREATED.",
+    amazon_ses: "In Amazon SNS, create a topic and add an HTTPS subscription to this URL; Dakiya Mail confirms it automatically. Then, in SES, set your identity's bounce, complaint and delivery notifications to that topic. The URL must be reachable from the internet.",
 };
 
 export default function InboundUrlDialog({

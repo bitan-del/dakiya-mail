@@ -322,7 +322,7 @@ func (w *WMail) sendViaSMTP(ctx context.Context, req *SendRequest, bodyHTML stri
 
 	// Send via SMTP. Attachments are passed explicitly (not variadic) so an
 	// empty list still selects the same code path.
-	raw, merr := w.SmtpImapData.SmtpClient.Send(
+	raw, reply, merr := w.SmtpImapData.SmtpClient.Send(
 		ctx,
 		req.To,
 		req.Cc,
@@ -348,7 +348,10 @@ func (w *WMail) sendViaSMTP(ctx context.Context, req *SendRequest, bodyHTML stri
 
 	result.Success = true
 	result.MessageID = req.MessageID
-	result.ProviderMsgID = req.MessageID // SMTP uses the same message ID
+	result.ProviderMsgID = req.MessageID
+	if id := smtp.SESMessageID(w.SmtpImapData.SmtpClient.Host(), reply); id != "" {
+		result.ProviderMsgID = id
+	}
 	return result
 }
 

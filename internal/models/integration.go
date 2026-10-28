@@ -35,6 +35,9 @@ const (
 
 	// Data
 	IntegrationGoogleSheets IntegrationProvider = "google_sheets"
+
+	// Deliverability: Amazon SES event notifications delivered through SNS.
+	IntegrationAmazonSES IntegrationProvider = "amazon_ses"
 )
 
 // AllIntegrationProviders lists every provider the dashboard exposes. The
@@ -52,6 +55,7 @@ var AllIntegrationProviders = []IntegrationProvider{
 	IntegrationCalendly,
 	IntegrationCalCom,
 	IntegrationGoogleSheets,
+	IntegrationAmazonSES,
 }
 
 func IsValidIntegrationProvider(s string) bool {
@@ -113,11 +117,12 @@ const (
 type IntegrationCategory string
 
 const (
-	IntegrationCategoryCRM           IntegrationCategory = "crm"
-	IntegrationCategoryAutomation    IntegrationCategory = "automation"
-	IntegrationCategoryNotifications IntegrationCategory = "notifications"
-	IntegrationCategoryMeetings      IntegrationCategory = "meetings"
-	IntegrationCategoryData          IntegrationCategory = "data"
+	IntegrationCategoryCRM            IntegrationCategory = "crm"
+	IntegrationCategoryAutomation     IntegrationCategory = "automation"
+	IntegrationCategoryNotifications  IntegrationCategory = "notifications"
+	IntegrationCategoryMeetings       IntegrationCategory = "meetings"
+	IntegrationCategoryData           IntegrationCategory = "data"
+	IntegrationCategoryDeliverability IntegrationCategory = "deliverability"
 )
 
 // IntegrationCatalogEntry is the static metadata for one provider that the

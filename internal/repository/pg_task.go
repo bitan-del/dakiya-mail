@@ -96,6 +96,8 @@ type TaskRepository interface {
 	// Read operations
 	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 	GetTaskByMessageID(ctx context.Context, messageID string) (*Task, error)
+	// GetTaskByProviderMessageID resolves the id a provider such as SES assigned to a send.
+	GetTaskByProviderMessageID(ctx context.Context, providerMessageID string) (*Task, error)
 	GetCampaignTask(ctx context.Context, taskID uuid.UUID) (*CampaignTask, error)
 	GetWarmupTask(ctx context.Context, taskID uuid.UUID) (*WarmupTask, error)
 	GetEmailTask(ctx context.Context, taskID uuid.UUID) (*EmailTask, error)
@@ -145,6 +147,7 @@ type TaskRepository interface {
 	DirectPendingWarmupTask(ctx context.Context, accountID, targetAccountID uuid.UUID, at time.Time) (bool, error)
 	UpdateTaskStatusWithLock(ctx context.Context, taskID uuid.UUID, status string) error
 	UpdateTaskMessageID(ctx context.Context, taskID uuid.UUID, messageID string) error
+	UpdateTaskProviderMessageID(ctx context.Context, taskID uuid.UUID, providerMessageID string) error
 
 	// Update campaign task with contact/sequence IDs (for tracking)
 	UpdateCampaignTaskTracking(ctx context.Context, taskID, contactID, sequenceID uuid.UUID) error
@@ -889,6 +892,45 @@ func (r *taskRepository) UpdateTaskStatusWithLock(ctx context.Context, taskID uu
 	}
 
 	return tx.Commit(ctx)
+}
+
+// GetTaskByProviderMessageID retrieves the latest task carrying the provider's own message id.
+func (r *taskRepository) GetTaskByProviderMessageID(ctx context.Context, providerMessageID string) (*Task, error) {
+	id := strings.TrimSpace(providerMessageID)
+	if id == "" {
+		return nil, nil
+	}
+	task := &Task{}
+	err := r.db.QueryRow(ctx, `
+		SELECT id, task_type, email_account_id, status, message_id,
+		       scheduled_at, completed_at, cloud_task_name, created_at, updated_at
+		FROM tasks
+		WHERE provider_message_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, id).Scan(
+		&task.ID,
+		&task.TaskType,
+		&task.EmailAccountID,
+		&task.Status,
+		&task.MessageID,
+		&task.ScheduledAt,
+		&task.CompletedAt,
+		&task.CloudTaskName,
+		&task.CreatedAt,
+		&task.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return task, err
+}
+
+func (r *taskRepository) UpdateTaskProviderMessageID(ctx context.Context, taskID uuid.UUID, providerMessageID string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE tasks SET provider_message_id = $1, updated_at = NOW() WHERE id = $2`,
+		providerMessageID, taskID)
+	return err
 }
 
 // UpdateTaskMessageID persists the outbound Message-ID on the task row. Warmup

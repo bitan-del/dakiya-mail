@@ -13,7 +13,8 @@ export type IntegrationProvider =
     | "slack"
     | "discord"
     | "calendly"
-    | "cal_com";
+    | "cal_com"
+    | "amazon_ses";
 
 export type IntegrationAuthMethod = "oauth" | "api_key" | "webhook";
 
@@ -32,7 +33,8 @@ export type IntegrationCategory =
     | "automation"
     | "notifications"
     | "meetings"
-    | "data";
+    | "data"
+    | "deliverability";
 
 export interface IntegrationCatalogEntry {
     provider: IntegrationProvider;
@@ -281,6 +283,7 @@ export const CATEGORY_LABELS: Record<IntegrationCategory, string> = {
     notifications: "Notifications",
     meetings: "Meetings",
     data: "Data",
+    deliverability: "Deliverability",
 };
 
 export const CATEGORY_ORDER: IntegrationCategory[] = [
@@ -288,6 +291,7 @@ export const CATEGORY_ORDER: IntegrationCategory[] = [
     "notifications",
     "automation",
     "meetings",
+    "deliverability",
     "data",
 ];
 
@@ -356,6 +360,7 @@ export const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
     discord: "Discord",
     calendly: "Calendly",
     cal_com: "Cal.com",
+    amazon_ses: "Amazon SES",
 };
 
 // A connection is bookable when it's a connected scheduling provider with a

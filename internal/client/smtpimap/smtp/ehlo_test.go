@@ -68,8 +68,12 @@ func TestSendRawEhloBeforeAndAfterStartTLS(t *testing.T) {
 		AuthType:    models.AuthPlain,
 		Credentials: &models.Service{Username: "u", Password: "p", Host: "127.0.0.1", Port: port},
 	}
-	if err := c.sendRaw(context.Background(), "a@example.com", []string{"b@example.com"}, []byte("Subject: x\r\n\r\nhi\r\n")); err != nil {
+	reply, err := c.sendRaw(context.Background(), "a@example.com", []string{"b@example.com"}, []byte("Subject: x\r\n\r\nhi\r\n"))
+	if err != nil {
 		t.Fatalf("sendRaw: %v", err)
+	}
+	if reply != "Ok 0100018c-test-000000" {
+		t.Fatalf("final DATA reply = %q", reply)
 	}
 
 	want := []string{"mail.example.com", "mail.example.com"}
@@ -152,7 +156,7 @@ func fakeSMTPServer(t *testing.T) (port int, ehlos func() []string) {
 				if _, err := tp.ReadDotLines(); err != nil {
 					return
 				}
-				tp.PrintfLine("250 queued")
+				tp.PrintfLine("250 Ok 0100018c-test-000000")
 			case cmd == "QUIT":
 				tp.PrintfLine("221 bye")
 				return
