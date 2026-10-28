@@ -9,6 +9,7 @@
 //   provider picker ──► gmail OAuth popup  ─┐
 //                  ──► outlook OAuth popup ─┼─► /emails/onboarding/oauth/finish
 //                  ──► smtp/imap form ──────────► /emails/onboarding/smtp-imap
+//                  ──► amazon ses form ─────────► /emails/onboarding/smtp-imap (SES SMTP + inbox IMAP)
 //
 // OAuth popup posts {type:"email_oauth_callback", code, state} back here
 // via window.postMessage; we then call OAuth-finish with the user's bearer.
@@ -38,6 +39,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { Logo } from "@/components/svg";
 import { TextInput } from "@/components/ui/field";
+import { PASSWORD_MANAGER_IGNORE } from "@/components/ui/passwordManagers";
+import { SelectMenu, type SelectOption } from "@/components/ui/select-menu";
 import { useUserProfile } from "@/hooks/context/user";
 import { API_URL, APP_URL } from "@/lib/information";
 import type { AppError } from "@/lib/api/client/normalizeError";
@@ -52,7 +55,7 @@ import type { CloudOAuthDoneMessage } from "@/app/cloud-oauth/done/page";
 import { Google, Outlook } from "@/components/svg";
 import { cn } from "@/lib/utils";
 
-type View = "pick" | "gmail" | "outlook" | "smtp_imap";
+type View = "pick" | "gmail" | "outlook" | "smtp_imap" | "ses";
 type OAuthProvider = "gmail" | "outlook";
 
 interface OAuthCallbackMessage {
@@ -332,6 +335,14 @@ export default function AddEmailModal() {
                                             }}
                                         />
                                     )}
+                                    {view === "ses" && (
+                                        <SesPanel
+                                            onDone={() => {
+                                                qc.invalidateQueries({ queryKey: ["emails", "list"] });
+                                                user.setAddEmail(false);
+                                            }}
+                                        />
+                                    )}
                                 </motion.div>
                             </AnimatePresence>
                         </div>
@@ -356,6 +367,7 @@ function Header({
         gmail: "Gmail or Google Workspace",
         outlook: "Outlook or Microsoft 365",
         smtp_imap: "Any provider via SMTP / IMAP",
+        ses: "Amazon SES with your domain's inbox",
     };
     return (
         <div className="h-12 px-3 border-b border-slate-200 flex items-center gap-2.5 shrink-0">
@@ -489,6 +501,13 @@ function PickProvider({ onPick, viaCloud, onAdopted }: { onPick: (v: View) => vo
             icon: <Logo className="w-4 h-5 text-slate-700" />,
             title: "Other (SMTP / IMAP)",
             sub: "Any provider with manual host, port, and app password.",
+            tone: "neutral",
+        },
+        {
+            key: "ses",
+            icon: <SendIcon className="w-4 h-4 text-slate-700" />,
+            title: "Amazon SES",
+            sub: "Send through SES from your verified domain; replies sync from its inbox.",
             tone: "neutral",
         },
     ];
@@ -728,14 +747,7 @@ function SmtpImapPanel({ onDone }: { onDone: () => void }) {
 
     return (
         <div>
-            <Section title="Account" sub="Name and address you send from" icon={<MailIcon className="w-3.5 h-3.5" />}>
-                <Field label="Name">
-                    <TextInput value={name} onChange={setName} placeholder="Alex Rivera" />
-                </Field>
-                <Field label="Email">
-                    <TextInput value={email} onChange={setEmail} placeholder="alex@company.com" />
-                </Field>
-            </Section>
+            <AccountSection name={name} onName={setName} email={email} onEmail={setEmail} />
 
             <Section title="IMAP" sub="Incoming, usually 993" icon={<InboxIcon className="w-3.5 h-3.5" />}>
                 <Field label="Server">
@@ -756,10 +768,12 @@ function SmtpImapPanel({ onDone }: { onDone: () => void }) {
                             setImapUser(v);
                         }}
                         placeholder={email || "alex@company.com"}
+                        autoComplete="off"
+                        ignorePasswordManagers
                     />
                 </Field>
                 <Field label="Password">
-                    <TextInput value={imapPass} onChange={setImapPass} placeholder="App password" type="password" />
+                    <TextInput value={imapPass} onChange={setImapPass} placeholder="App password" type="password" autoComplete="new-password" ignorePasswordManagers />
                 </Field>
             </Section>
 
@@ -804,10 +818,12 @@ function SmtpImapPanel({ onDone }: { onDone: () => void }) {
                                             setSmtpUser(v);
                                         }}
                                         placeholder={email || "alex@company.com"}
+                                        autoComplete="off"
+                                        ignorePasswordManagers
                                     />
                                 </Field>
                                 <Field label="Password">
-                                    <TextInput value={smtpPass} onChange={setSmtpPass} placeholder="App password" type="password" />
+                                    <TextInput value={smtpPass} onChange={setSmtpPass} placeholder="App password" type="password" autoComplete="new-password" ignorePasswordManagers />
                                 </Field>
                             </div>
                         </motion.div>
@@ -815,25 +831,237 @@ function SmtpImapPanel({ onDone }: { onDone: () => void }) {
                 </AnimatePresence>
             </Section>
 
-            <div className="px-4 py-2.5 border-t border-slate-200 bg-slate-50/60 flex items-center gap-2 min-w-0 sticky bottom-0">
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 min-w-0 flex-1">
-                    <KeyRoundIcon className="w-3 h-3 shrink-0" />
-                    <span className="truncate">Verified against your server before saving.</span>
+            <ConnectFooter note="Verified against your server before saving." ready={valid()} submitting={submitting} onSubmit={submit} />
+        </div>
+    );
+}
+
+// SES SMTP endpoints, one per region: email-smtp.<region>.amazonaws.com.
+const SES_REGIONS: SelectOption[] = [
+    { value: "us-east-1", label: "US East (N. Virginia)", group: "Americas" },
+    { value: "us-east-2", label: "US East (Ohio)", group: "Americas" },
+    { value: "us-west-1", label: "US West (N. California)", group: "Americas" },
+    { value: "us-west-2", label: "US West (Oregon)", group: "Americas" },
+    { value: "ca-central-1", label: "Canada (Central)", group: "Americas" },
+    { value: "sa-east-1", label: "South America (São Paulo)", group: "Americas" },
+    { value: "eu-west-1", label: "Europe (Ireland)", group: "Europe" },
+    { value: "eu-west-2", label: "Europe (London)", group: "Europe" },
+    { value: "eu-west-3", label: "Europe (Paris)", group: "Europe" },
+    { value: "eu-central-1", label: "Europe (Frankfurt)", group: "Europe" },
+    { value: "eu-north-1", label: "Europe (Stockholm)", group: "Europe" },
+    { value: "ap-south-1", label: "Asia Pacific (Mumbai)", group: "Asia Pacific" },
+    { value: "ap-southeast-1", label: "Asia Pacific (Singapore)", group: "Asia Pacific" },
+    { value: "ap-southeast-2", label: "Asia Pacific (Sydney)", group: "Asia Pacific" },
+    { value: "ap-northeast-1", label: "Asia Pacific (Tokyo)", group: "Asia Pacific" },
+    { value: "ap-northeast-2", label: "Asia Pacific (Seoul)", group: "Asia Pacific" },
+];
+
+// IMAP hosts for the inboxes a custom SES domain usually has.
+const INBOX_PRESETS = [
+    { label: "Google Workspace", host: "imap.gmail.com" },
+    { label: "Zoho Mail", host: "imappro.zoho.com" },
+];
+
+// Amazon SES sends; the domain's own mailbox receives over IMAP, so replies,
+// bounces and warmup work exactly as they do for any SMTP/IMAP mailbox.
+function SesPanel({ onDone }: { onDone: () => void }) {
+    const [name, setName] = React.useState("");
+    const [email, setEmail] = React.useState("");
+
+    const [region, setRegion] = React.useState("us-east-1");
+    const [sesUser, setSesUser] = React.useState("");
+    const [sesPass, setSesPass] = React.useState("");
+
+    const [imapHost, setImapHost] = React.useState("");
+    const [imapPort, setImapPort] = React.useState("993");
+    const [imapUser, setImapUser] = React.useState("");
+    const [imapPass, setImapPass] = React.useState("");
+    const [submitting, setSubmitting] = React.useState(false);
+
+    const imapUserTouched = React.useRef(false);
+    React.useEffect(() => {
+        if (!imapUserTouched.current) setImapUser(email);
+    }, [email]);
+
+    const sesHost = `email-smtp.${region}.amazonaws.com`;
+
+    function valid() {
+        if (!name.trim() || !email.trim()) return false;
+        if (!sesUser.trim() || !sesPass) return false;
+        if (!imapHost.trim() || !imapPort.trim() || !imapUser.trim() || !imapPass) return false;
+        return true;
+    }
+
+    async function submit() {
+        if (submitting || !valid()) return;
+        setSubmitting(true);
+        try {
+            await toast.promise(
+                addEmail({
+                    name: name.trim(),
+                    email: email.trim(),
+                    imap: {
+                        username: imapUser.trim(),
+                        password: imapPass,
+                        host: imapHost.trim(),
+                        port: Number(imapPort),
+                    },
+                    // 587 with STARTTLS: SES also offers 465, but this sender upgrades in place.
+                    smtp: {
+                        username: sesUser.trim(),
+                        password: sesPass,
+                        host: sesHost,
+                        port: 587,
+                    },
+                }),
+                {
+                    loading: "Verifying SES and inbox…",
+                    success: "Mailbox connected",
+                    error: (e: AppError) => buildError(e),
+                },
+            );
+            onDone();
+        } catch {
+            /* surfaced by toast */
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    return (
+        <div>
+            <AccountSection
+                name={name}
+                onName={setName}
+                email={email}
+                onEmail={setEmail}
+                sub="An address on your SES-verified domain"
+            />
+
+            <Section title="Amazon SES" sub="Outgoing, through your SES region" icon={<SendIcon className="w-3.5 h-3.5" />}>
+                <Field label="Region">
+                    <SelectMenu value={region} onChange={setRegion} options={SES_REGIONS} fullWidth aria-label="SES region" />
+                </Field>
+                <Field label="Username">
+                    <TextInput value={sesUser} onChange={setSesUser} placeholder="SES SMTP username" autoComplete="off" ignorePasswordManagers />
+                </Field>
+                <Field label="Password">
+                    <TextInput value={sesPass} onChange={setSesPass} placeholder="SES SMTP password" type="password" autoComplete="new-password" ignorePasswordManagers />
+                </Field>
+                <p className="pl-[76px] text-[11.5px] text-slate-500 leading-relaxed">
+                    Sends through <code className="text-slate-700">{sesHost}:587</code>. Create SMTP credentials in the SES console under{" "}
+                    <span className="text-slate-700">SMTP settings</span>; they are not your AWS access keys.
+                </p>
+            </Section>
+
+            <Section title="Inbox" sub="Where replies land, over IMAP" icon={<InboxIcon className="w-3.5 h-3.5" />}>
+                <Field label="Server">
+                    <HostPortInput
+                        host={imapHost}
+                        onHost={setImapHost}
+                        hostPlaceholder="imap.example.com"
+                        port={imapPort}
+                        onPort={setImapPort}
+                        portPlaceholder="993"
+                    />
+                </Field>
+                <div className="pl-[76px] flex flex-wrap items-center gap-1.5">
+                    {INBOX_PRESETS.map((p) => (
+                        <button
+                            key={p.host}
+                            type="button"
+                            onClick={() => {
+                                setImapHost(p.host);
+                                setImapPort("993");
+                            }}
+                            className={cn(
+                                "h-6 px-2 rounded-md border text-[11.5px] transition-colors",
+                                imapHost === p.host
+                                    ? "border-sky-200 bg-sky-50 text-sky-700"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
                 </div>
-                <motion.button
-                    type="button"
-                    onClick={submit}
-                    disabled={!valid() || submitting}
-                    whileTap={valid() && !submitting ? { scale: 0.97 } : undefined}
-                    className={cn(
-                        "shrink-0 h-7 px-3 rounded-md text-[12px] font-medium inline-flex items-center gap-1.5 transition-colors",
-                        "bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 disabled:cursor-not-allowed",
-                    )}
-                >
-                    {submitting ? <Loader2Icon className="w-3 h-3 animate-spin" /> : <CheckIcon className="w-3 h-3" />}
-                    Connect
-                </motion.button>
+                <Field label="Username">
+                    <TextInput
+                        value={imapUser}
+                        onChange={(v) => {
+                            imapUserTouched.current = true;
+                            setImapUser(v);
+                        }}
+                        placeholder={email || "alex@company.com"}
+                        autoComplete="off"
+                        ignorePasswordManagers
+                    />
+                </Field>
+                <Field label="Password">
+                    <TextInput value={imapPass} onChange={setImapPass} placeholder="App password" type="password" autoComplete="new-password" ignorePasswordManagers />
+                </Field>
+            </Section>
+
+            <ConnectFooter note="SES login and inbox are both verified before saving." ready={valid()} submitting={submitting} onSubmit={submit} />
+        </div>
+    );
+}
+
+function AccountSection({
+    name,
+    onName,
+    email,
+    onEmail,
+    sub = "Name and address you send from",
+}: {
+    name: string;
+    onName: (v: string) => void;
+    email: string;
+    onEmail: (v: string) => void;
+    sub?: string;
+}) {
+    return (
+        <Section title="Account" sub={sub} icon={<MailIcon className="w-3.5 h-3.5" />}>
+            <Field label="Name">
+                <TextInput value={name} onChange={onName} placeholder="Alex Rivera" autoComplete="off" ignorePasswordManagers />
+            </Field>
+            <Field label="Email">
+                <TextInput value={email} onChange={onEmail} placeholder="alex@company.com" autoComplete="off" ignorePasswordManagers />
+            </Field>
+        </Section>
+    );
+}
+
+function ConnectFooter({
+    note,
+    ready,
+    submitting,
+    onSubmit,
+}: {
+    note: string;
+    ready: boolean;
+    submitting: boolean;
+    onSubmit: () => void;
+}) {
+    return (
+        <div className="px-4 py-2.5 border-t border-slate-200 bg-slate-50/60 flex items-center gap-2 min-w-0 sticky bottom-0">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 min-w-0 flex-1">
+                <KeyRoundIcon className="w-3 h-3 shrink-0" />
+                <span className="truncate">{note}</span>
             </div>
+            <motion.button
+                type="button"
+                onClick={onSubmit}
+                disabled={!ready || submitting}
+                whileTap={ready && !submitting ? { scale: 0.97 } : undefined}
+                className={cn(
+                    "shrink-0 h-7 px-3 rounded-md text-[12px] font-medium inline-flex items-center gap-1.5 transition-colors",
+                    "bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+            >
+                {submitting ? <Loader2Icon className="w-3 h-3 animate-spin" /> : <CheckIcon className="w-3 h-3" />}
+                Connect
+            </motion.button>
         </div>
     );
 }
@@ -900,6 +1128,8 @@ function HostPortInput({
                 value={host}
                 onChange={(e) => onHost(e.target.value)}
                 placeholder={hostPlaceholder}
+                autoComplete="off"
+                {...PASSWORD_MANAGER_IGNORE}
                 className="flex-1 min-w-0 px-2.5 bg-transparent outline-none text-[12.5px] text-slate-900 placeholder:text-slate-400"
             />
             <div className="w-px bg-slate-200 shrink-0" />
@@ -908,6 +1138,8 @@ function HostPortInput({
                 onChange={(e) => onPort(e.target.value)}
                 placeholder={portPlaceholder}
                 inputMode="numeric"
+                autoComplete="off"
+                {...PASSWORD_MANAGER_IGNORE}
                 className="w-14 shrink-0 px-2 bg-slate-50/60 outline-none text-[12.5px] text-slate-900 placeholder:text-slate-400 tabular-nums text-center"
             />
         </div>
