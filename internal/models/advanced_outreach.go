@@ -2,6 +2,7 @@ package models
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,6 +78,19 @@ func (s *AdvancedOutreachSettings) Normalize() {
 	if s.Preflight.MinContentScore < 1 {
 		s.Preflight.MinContentScore = 1
 	}
+	ci := &s.ContactIngestion
+	ci.DuplicateWindowDays = max(0, min(ci.DuplicateWindowDays, MaxIngestionWindowDays))
+	seen := map[string]bool{}
+	fields := []string{}
+	for _, f := range ci.RequiredFields {
+		f = strings.TrimSpace(f)
+		if !ValidIngestionRequiredField(f) || seen[f] || len(fields) >= MaxIngestionRequiredFields {
+			continue
+		}
+		seen[f] = true
+		fields = append(fields, f)
+	}
+	ci.RequiredFields = fields
 }
 
 type DeliverabilityDashboardSettings struct {
@@ -94,7 +108,32 @@ type AdvancedOutreachSettings struct {
 	SendTimeOptimization SendTimeOptimizationSettings    `json:"send_time_optimization"`
 	Preflight            PreflightValidationSettings     `json:"preflight"`
 	Dashboard            DeliverabilityDashboardSettings `json:"dashboard"`
+	ContactIngestion     ContactIngestionSettings        `json:"contact_ingestion"`
 	Custom               map[string]interface{}          `json:"custom,omitempty"`
+}
+
+// ContactIngestionSettings are the rules every contact add (API, import, sheet
+// sync) passes before it is written. The zero value accepts everything.
+type ContactIngestionSettings struct {
+	// DuplicateWindowDays rejects an address already added in the last N days; 0 turns it off.
+	DuplicateWindowDays int `json:"duplicate_window_days"`
+	// RequiredFields: first_name, last_name, company, phone, or custom:<key>.
+	RequiredFields []string `json:"required_fields"`
+}
+
+const (
+	MaxIngestionWindowDays     = 365
+	MaxIngestionRequiredFields = 20
+)
+
+// ValidIngestionRequiredField reports whether f names a field a contact can carry.
+func ValidIngestionRequiredField(f string) bool {
+	switch f {
+	case "first_name", "last_name", "company", "phone":
+		return true
+	}
+	key, ok := strings.CutPrefix(f, "custom:")
+	return ok && strings.TrimSpace(key) != "" && len(key) <= 64
 }
 
 type CampaignAdvancedSettings struct {

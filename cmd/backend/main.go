@@ -1209,6 +1209,9 @@ func main() {
 		if aware, ok := contactService.(contact.OrgRiskAware); ok && orgRiskService != nil {
 			aware.WireOrgRisk(orgRiskService)
 		}
+		if aware, ok := contactService.(contact.IngestionAware); ok {
+			aware.WireIngestionRules(advancedRepository)
+		}
 
 		// On-demand Google Sheets -> leads sync (backend-only / control plane).
 		// Reuses the integration service for the Google token + sheet reads and

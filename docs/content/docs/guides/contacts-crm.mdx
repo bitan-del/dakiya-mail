@@ -73,6 +73,29 @@ It supports type-ahead search, and typing an unmatched name offers **Create** to
 
 Categories also drive automation: a sequence can run **Add tag** or **Remove tag** as a contact moves through a flow, so a label can be applied automatically on a positive reply.
 
+## Contact intake rules
+
+**Settings** > **Sending** > **Contact intake** sets rules every new contact must pass, whether it comes from the API, a file import or a Google Sheets sync. Both are off by default.
+
+- **Reject recent duplicates**: refuse an address the workspace already added within the last N days (up to 365). Use it when partners post the same lead repeatedly and you only want the first.
+- **Required fields**: refuse a contact missing any of first name, last name, company, phone, or a custom field you name. Email is always required.
+
+An import or sync fails only the rejected rows and lists each with its reason. An API request (`POST /contacts`) is all or nothing: if any contact breaks a rule, none are added and the error names the addresses to fix (`contact_ingestion_rejected`).
+
+### Lead-source fields
+
+For leads that arrive from forms, partners or affiliates, the importer recognizes common source columns and maps them to standard custom fields, so they read the same across every list:
+
+| Custom field | Column names recognized |
+|---|---|
+| `signup_ip` | IP, IP address, signup IP, opt-in IP |
+| `signup_url` | URL, signup URL, source URL, landing page, opt-in URL |
+| `signup_at` | Signup date, signup time, opt-in date, subscribed at |
+| `source` | Source, lead source, list, list name |
+| `source_id` | SID, source ID, sub ID, S1, affiliate ID, publisher ID |
+
+They behave like any other custom field: filter on them, require them, and use them in segments and merge fields.
+
 ## Segments
 
 A **segment** is a saved set of contact filters (search, categories, custom fields, subscription, campaign membership, dates). It is not a frozen list: each time you open or use it, Dakiya Mail finds the contacts that match right now, so new contacts that fit are included and ones that no longer fit drop out.

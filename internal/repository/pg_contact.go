@@ -32,6 +32,7 @@ type ContactRepository interface {
 	DeleteSegment(ctx context.Context, orgID, id uuid.UUID) *errx.Error
 	CountCampaignLeads(ctx context.Context, campaignID uuid.UUID, contactIDs []uuid.UUID) (int, *errx.Error)
 	CampaignInOrganization(ctx context.Context, orgID, campaignID uuid.UUID) (bool, *errx.Error)
+	RecentContactEmails(ctx context.Context, orgID uuid.UUID, emails []string, since time.Time) (map[string]bool, *errx.Error)
 
 	Add(ctx context.Context, userID string, orgID uuid.UUID, contacts []models.AddContact) ([]models.Contact, *errx.Error)
 	GetByID(ctx context.Context, contactID uuid.UUID) (*models.Contact, *errx.Error)

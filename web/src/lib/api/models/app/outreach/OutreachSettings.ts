@@ -21,6 +21,13 @@ export interface PreflightSettings {
     min_content_score: number;
 }
 
+export interface ContactIngestionSettings {
+    // 0 turns the duplicate window off.
+    duplicate_window_days: number;
+    // first_name, last_name, company, phone, or custom:<key>.
+    required_fields: string[];
+}
+
 export interface OutreachSettings {
     bounce_pipeline: Record<string, unknown>;
     task_reliability: Record<string, unknown>;
@@ -29,6 +36,7 @@ export interface OutreachSettings {
     send_time_optimization: SendTimeOptimizationSettings;
     preflight: PreflightSettings;
     dashboard: Record<string, unknown>;
+    contact_ingestion?: ContactIngestionSettings;
     custom?: Record<string, unknown>;
 }
 

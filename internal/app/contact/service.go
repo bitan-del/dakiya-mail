@@ -109,6 +109,8 @@ type contactService struct {
 	// orgRisk files import-quality findings on the workspace's posture.
 	// Optional/nil-safe: without it a bad import is reported but not fused.
 	orgRisk orgrisk.Service
+	// ingestion supplies duplicate-window and required-field rules. Nil accepts everything.
+	ingestion IngestionRulesSource
 }
 
 // WireOrgRisk attaches the organization risk posture.

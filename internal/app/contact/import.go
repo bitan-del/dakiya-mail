@@ -292,6 +292,26 @@ func (s *contactService) ImportCommit(
 		parsed = append(parsed, p)
 	}
 
+	// Workspace ingestion rules fail individual rows, like a bad address does.
+	screen := make([]*models.AddContact, 0, len(parsed))
+	screenIdx := make([]int, 0, len(parsed))
+	for i := range parsed {
+		if parsed[i].ok {
+			screen = append(screen, &parsed[i].contact)
+			screenIdx = append(screenIdx, i)
+		}
+	}
+	reasons, xerr := s.screenContacts(ctx, orgID, screen)
+	if xerr != nil {
+		return nil, xerr
+	}
+	for j, r := range reasons {
+		if r != "" {
+			parsed[screenIdx[j]].ok = false
+			parsed[screenIdx[j]].errMsg = r
+		}
+	}
+
 	// Resolve every category title the file mentions in one round trip,
 	// creating the ones the user doesn't have yet.
 	titleToID := map[string]uuid.UUID{}
@@ -734,6 +754,9 @@ func guessTarget(idx int, header string) models.ContactImportColumnMapping {
 	case "categories", "category", "tags", "tag", "labels", "label":
 		return models.ContactImportColumnMapping{Index: idx, Target: models.ContactImportTargetCategories}
 	}
+	if lead := leadGenField(key); lead != "" {
+		return models.ContactImportColumnMapping{Index: idx, Target: models.ContactImportTargetCustom, CustomKey: lead}
+	}
 	return models.ContactImportColumnMapping{Index: idx, Target: models.ContactImportTargetIgnore}
 }
 
@@ -925,4 +948,22 @@ func importRiskWeight(badPct float64) int {
 		w = 1
 	}
 	return w
+}
+
+// leadGenField maps common lead-source column names to the standard custom-field
+// keys (signup_ip, signup_url, signup_at, source, source_id), or "".
+func leadGenField(key string) string {
+	switch key {
+	case "signupip", "ip", "ipaddress", "optinip":
+		return "signup_ip"
+	case "signupurl", "sourceurl", "landingpage", "optinurl", "url":
+		return "signup_url"
+	case "signupdate", "signupat", "signuptime", "optindate", "optintime", "subscribedat":
+		return "signup_at"
+	case "source", "leadsource", "signupsource", "list", "listname":
+		return "source"
+	case "sid", "sourceid", "subid", "s1", "affiliateid", "affid", "publisherid", "pubid":
+		return "source_id"
+	}
+	return ""
 }

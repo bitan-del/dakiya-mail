@@ -55,6 +55,25 @@ func (s *contactService) Add(ctx context.Context, userID string, orgID uuid.UUID
 	if xerr := s.checkContactLimit(ctx, userID, len(contacts)); xerr != nil {
 		return nil, xerr
 	}
+	// Ingestion rules are all-or-nothing here: the caller sees exactly which rows to fix.
+	ptrs := make([]*models.AddContact, len(contacts))
+	for i := range contacts {
+		ptrs[i] = &contacts[i]
+	}
+	reasons, xerr := s.screenContacts(ctx, orgID, ptrs)
+	if xerr != nil {
+		return nil, xerr
+	}
+	var rejected []string
+	for i, r := range reasons {
+		if r != "" && len(rejected) < 10 {
+			rejected = append(rejected, contacts[i].Email+": "+r)
+		}
+	}
+	if len(rejected) > 0 {
+		return nil, errx.NewWithIdentifier(errx.BadRequest, "contact_ingestion_rejected",
+			"rejected by the workspace's contact ingestion rules: "+strings.Join(rejected, "; "))
+	}
 
 	created, xerr := s.contactRepository.Add(ctx, userID, orgID, contacts)
 	if xerr != nil {
