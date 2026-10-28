@@ -40,3 +40,14 @@ CVE-2026-35591
 # mode, and no server actions, so the vulnerable path does not exist here.
 # Re-evaluate when we move either app to react-router 8.
 GHSA-qwww-vcr4-c8h2
+
+# astro < 7.2.8: RCE through AVIF image optimization (GHSA-26w7-cxv4-gfx2).
+# The fix needs Astro 7, which requires sharp 0.35, which breaks the marketing
+# site's Cloudflare Pages build (see the sharp entry above). site/ is a static
+# build that optimizes only our own committed images, so no untrusted AVIF
+# reaches the optimizer. Re-evaluate with the Astro 7 migration.
+GHSA-26w7-cxv4-gfx2
+
+# sharp < 0.35.4 libvips advisory (GHSA-rgj7-g3m4-5g8c). docs/ is on 0.35.4;
+# site/ stays on 0.34.5 for the same Cloudflare Pages reason as above.
+GHSA-rgj7-g3m4-5g8c

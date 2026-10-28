@@ -50,7 +50,7 @@ common_env() {
 cloud_env() {
   common_env
   export DEPLOYMENT_MODE=cloud BILLING_PROVIDER=stripe
-  export STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-sk_test_placeholder} STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-whsec_placeholder} STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}
+  export STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-sk_test_dev} STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-whsec_placeholder} STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}
   export PRIMARY_DB="$PG/$CLOUD_DB?sslmode=disable" REDIS=redis://localhost:16379/5 BLOB_FS_ROOT=/tmp/dakiya-poollink-blobs-cloud
   export API_HOST=0.0.0.0:$CLOUD_API_PORT APP_URL=http://$HOST:$CLOUD_WEB_PORT BLOB_PUBLIC_BASE_URL=http://$HOST:$CLOUD_API_PORT/public
   export CORS_ALLOW_ORIGINS=http://$HOST:$CLOUD_WEB_PORT,http://localhost:$CLOUD_WEB_PORT
