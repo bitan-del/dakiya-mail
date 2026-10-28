@@ -334,6 +334,7 @@ export function useRealtimeEvents() {
         const spine: Record<string, QueryKey[]> = {
           contact: [['contacts']],
           suppression: [['suppression'], ['analytics']],
+          segment: [['segments'], ['contacts'], ['campaigns']],
           campaign: [['campaigns'], ['analytics']],
           step: [['campaigns']],
           // ['emails'] rather than ['emails', 'list']: it prefix-matches the

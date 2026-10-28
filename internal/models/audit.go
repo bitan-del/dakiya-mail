@@ -132,6 +132,8 @@ const (
 
 	// Suppression list entries and hashed suppression lists.
 	AuditEntitySuppression AuditEntityType = "suppression"
+	// Saved contact segments.
+	AuditEntitySegment AuditEntityType = "segment"
 )
 
 // AuditActor is the minimal identity of the member who performed an action,

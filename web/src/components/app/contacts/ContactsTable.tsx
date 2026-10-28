@@ -30,6 +30,8 @@ import {
     PlusIcon,
     RefreshCcwIcon,
     Settings2Icon,
+    BookmarkIcon,
+    BookmarkPlusIcon,
     SheetIcon,
     SparklesIcon,
     TrashIcon,
@@ -54,6 +56,10 @@ import toast from "react-hot-toast";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
 import ContactFilters from "./ContactFilters";
+import { countActiveFilters } from "./countActiveFilters";
+import { EnrollSegmentDialog, SaveSegmentDialog } from "./segments/SegmentDialogs";
+import type { Segment } from "@/lib/api/models/app/contacts/Segment";
+import { Link } from "react-router-dom";
 import ContactEdit from "./ContactEdit";
 import type { ContactSlideTab } from "./contact-edit/tabs";
 import type MiniCampaign from "@/lib/api/models/app/campaigns/MiniCampaign";
@@ -93,8 +99,13 @@ type SubFilter = "all" | "subscribed" | "unsubscribed";
 
 export default function ContactsTable({
     current_campaign,
+    initialFilter,
+    segment,
 }: {
     current_campaign?: MiniCampaign;
+    // Opening a saved segment starts the table on its filters.
+    initialFilter?: SearchContacts;
+    segment?: Segment;
 }) {
     const confirm = useConfirm();
     const [selected, setSelected] = React.useState<string[]>([]);
@@ -116,13 +127,17 @@ export default function ContactsTable({
     const [syncOpen, setSyncOpen] = React.useState<boolean>(false);
     const [fromContactsOpen, setFromContactsOpen] = React.useState<boolean>(false);
 
-    const [searchProps, setSearchProps] = React.useState<SearchContacts>({
+    const [searchProps, setSearchProps] = React.useState<SearchContacts>(() => ({
         query: "",
-        custom_field_filters: [],
-        campaign_ids: current_campaign ? [current_campaign.id] : [],
         sort_by: "created_at",
         reverse: false,
-    });
+        ...initialFilter,
+        custom_field_filters: initialFilter?.custom_field_filters ?? [],
+        campaign_ids: current_campaign ? [current_campaign.id] : (initialFilter?.campaign_ids ?? []),
+    }));
+    const [saveSegmentOpen, setSaveSegmentOpen] = React.useState(false);
+    const [enrollOpen, setEnrollOpen] = React.useState(false);
+    const canSaveSegment = !current_campaign && countActiveFilters(searchProps, false) > 0;
     const contactsData = useSearchContacts({ options: searchProps });
     const contactsBulkDelete = useDeleteContacts();
 
@@ -599,7 +614,33 @@ export default function ContactsTable({
                         </span>
                     )}
                 </TopbarAction>
+                {canSaveSegment && (
+                    <TopbarAction
+                        variant="ghost"
+                        icon={<BookmarkPlusIcon className="w-3 h-3" />}
+                        onClick={() => setSaveSegmentOpen(true)}
+                    >
+                        Save as segment
+                    </TopbarAction>
+                )}
             </SectionBar>
+            {segment && (
+                <div className="px-5 h-9 border-b border-slate-200/60 flex items-center gap-2 text-[12px] bg-sky-50/40">
+                    <BookmarkIcon className="w-3.5 h-3.5 text-sky-600" />
+                    <span className="text-slate-500">Segment</span>
+                    <span className="text-slate-900 font-medium truncate">{segment.name}</span>
+                    <button
+                        type="button"
+                        onClick={() => setEnrollOpen(true)}
+                        className="ml-auto h-6 px-2 rounded border border-slate-200 bg-white hover:border-slate-300 text-[11.5px] text-slate-700"
+                    >
+                        Enroll in campaign
+                    </button>
+                    <Link to="/app/contacts/segments" className="text-[11.5px] text-sky-700 hover:underline">
+                        All segments
+                    </Link>
+                </div>
+            )}
 
             <PageBody>
                 {tableNode}
@@ -636,6 +677,8 @@ export default function ContactsTable({
             <ContactEdit contacts={contacts ?? []} active={edit} setActive={setEdit} initialTab={editTab} />
             <ContactsEditBulk active={bulkEdit} setActive={setBulkEdit} selected={selected} />
             <NewContactDialog open={newOpen} onClose={() => setNewOpen(false)} />
+            <SaveSegmentDialog open={saveSegmentOpen} onClose={() => setSaveSegmentOpen(false)} filter={searchProps} />
+            {segment && <EnrollSegmentDialog open={enrollOpen} onClose={() => setEnrollOpen(false)} segment={segment} />}
             <ExportDialog
                 open={exportOpen}
                 onClose={() => setExportOpen(false)}

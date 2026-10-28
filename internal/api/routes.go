@@ -724,6 +724,18 @@ func Run(
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
 			}
 
+			// Saved contact segments. Enrolling writes many campaign leads, so it takes the bulk scope.
+			segments := protected.Group("/segments")
+			segments.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				segments.GET("", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.ListSegments)
+				segments.GET("/:id", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.GetSegment)
+				segments.POST("", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.CreateSegment)
+				segments.PATCH("/:id", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.UpdateSegment)
+				segments.DELETE("/:id", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.DeleteSegment)
+				segments.POST("/:id/enroll", m.RequireAccess(models.PermManageContacts, models.APIPermBulkContacts), h.EnrollSegment)
+			}
+
 			// Suppression list manager: plaintext entries plus hashed (md5/sha256)
 			// advertiser lists. Reads use the contacts read scope; writes the bulk scope.
 			suppression := protected.Group("/suppression")

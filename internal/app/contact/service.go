@@ -15,6 +15,14 @@ import (
 )
 
 type ContactService interface {
+	// Saved segments (segment.go).
+	CreateSegment(ctx context.Context, orgID uuid.UUID, userID *uuid.UUID, req *models.SaveSegmentRequest) (*models.Segment, *errx.Error)
+	UpdateSegment(ctx context.Context, orgID, id uuid.UUID, req *models.SaveSegmentRequest) (*models.Segment, *errx.Error)
+	GetSegment(ctx context.Context, orgID, id uuid.UUID) (*models.Segment, *errx.Error)
+	ListSegments(ctx context.Context, orgID uuid.UUID) ([]models.Segment, *errx.Error)
+	DeleteSegment(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+	EnrollSegment(ctx context.Context, userID string, orgID, segmentID, campaignID uuid.UUID) (*models.EnrollSegmentResult, *errx.Error)
+
 	Add(ctx context.Context, userID string, orgID uuid.UUID, contacts []models.AddContact) ([]models.Contact, *errx.Error)
 	Search(ctx context.Context, userID, cursor, category, limit string, filters models.SearchContacts) (*models.ContactsResult, *errx.Error)
 	// SearchCounts returns org-wide contact facet totals for the browse sidebar.
