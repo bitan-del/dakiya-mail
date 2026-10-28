@@ -24,6 +24,14 @@ import (
 )
 
 type EmailService interface {
+	// Sender domains (domains.go).
+	ListSendingDomains(ctx context.Context, orgID uuid.UUID) ([]models.SendingDomain, *errx.Error)
+	GetSendingDomain(ctx context.Context, orgID, id uuid.UUID) (*models.SendingDomain, *errx.Error)
+	AddSendingDomain(ctx context.Context, orgID uuid.UUID, req *models.SaveSendingDomainRequest) (*models.SendingDomain, *errx.Error)
+	UpdateSendingDomain(ctx context.Context, orgID, id uuid.UUID, req *models.SaveSendingDomainRequest) (*models.SendingDomain, *errx.Error)
+	DeleteSendingDomain(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+	VerifySendingDomain(ctx context.Context, orgID, id uuid.UUID) (*models.SendingDomain, *errx.Error)
+
 	Search(ctx context.Context, userID, search, cursor, tag, limit string, allowedAccountIDs []uuid.UUID) (*models.EmailsResult, *errx.Error)
 	Get(ctx context.Context, userID, emailAccountID string) (*models.Email, *errx.Error)
 	Update(ctx context.Context, userID, emailAccountID string, udata *models.UpdateEmail) (*models.Email, *errx.Error)

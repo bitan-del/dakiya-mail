@@ -724,6 +724,19 @@ func Run(
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
 			}
 
+			// Sender domains: the records to publish and their DNS checks. Verify
+			// refreshes mailbox auth state, so it takes the write scope.
+			domains := protected.Group("/domains")
+			domains.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				domains.GET("", m.RequireAccess(models.PermViewCampaigns, models.APIPermReadEmails), h.ListSendingDomains)
+				domains.GET("/:id", m.RequireAccess(models.PermViewCampaigns, models.APIPermReadEmails), h.GetSendingDomain)
+				domains.POST("", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.AddSendingDomain)
+				domains.PATCH("/:id", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.UpdateSendingDomain)
+				domains.POST("/:id/verify", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.VerifySendingDomain)
+				domains.DELETE("/:id", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.DeleteSendingDomain)
+			}
+
 			// Saved contact segments. Enrolling writes many campaign leads, so it takes the bulk scope.
 			segments := protected.Group("/segments")
 			segments.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))

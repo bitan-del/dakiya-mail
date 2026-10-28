@@ -83,6 +83,21 @@ A DMARC record on the parent domain covers its subdomains, so a dedicated sendin
 
 Only the two records that DNS can answer for decide the state. A DMARC policy of `p=none` is Passing, because Google's bulk sender rules ask for a DMARC record at `p=none` or stronger, and stopping mail from a compliant sender would help nobody.
 
+### Sender domains
+
+**Domains** in the sidebar (under Accounts) lists the domains you send from, with the exact records each one should publish for its provider:
+
+| Provider | SPF include | DKIM |
+|---|---|---|
+| Amazon SES | `include:amazonses.com` | Three CNAMEs, `<token>._domainkey` pointing at `<token>.dkim.amazonses.com`. Paste the Easy DKIM tokens from the SES console and the records are filled in |
+| Google Workspace | `include:_spf.google.com` | A TXT at `google._domainkey`, generated in Google Admin |
+| Microsoft 365 | `include:spf.protection.outlook.com` | CNAMEs at `selector1._domainkey` and `selector2._domainkey`, with the tenant value Microsoft Defender shows |
+| Other | Your provider's include | A TXT at each selector you add |
+
+When the domain already has an SPF record, the suggested record is the existing one with the include added, because a domain may only publish one. A missing DMARC record gets a starting `p=none` policy with reports to `dmarc@` your domain.
+
+Adding a domain checks DNS straight away, and **Verify** checks it again after you publish. Each record shows found or missing. Verifying also records the result on every mailbox on that domain, so a fixed domain clears the send gate below without waiting for the daily check.
+
 ### What a Failing domain stops
 
 A domain that stays Failing past the grace period stops **cold campaign sending** and **warmup sending** from every mailbox on it. The mailbox stays connected, keeps syncing, and keeps receiving warmup mail, so it holds its place in the pool and its inbound capacity. It just stops adding unauthenticated volume to a reputation everyone in the pool shares.

@@ -304,6 +304,12 @@ var Tables = []Table{
 		Note:  "Suppression must travel, or the destination re-mails people who already opted out.",
 	},
 	{
+		Name: "sending_domains", Group: models.OrgDataGroupCore,
+		Scope:         scopeOrg,
+		ResetOnImport: []string{"last_checked_at"},
+		Note:          "DNS check results are re-derived on the destination; the selectors and provider travel.",
+	},
+	{
 		Name: "suppressed_hashes", Group: models.OrgDataGroupContacts,
 		Scope: scopeOrg,
 		Note:  "Hashed advertiser suppression lists; same reason as suppressed_recipients.",

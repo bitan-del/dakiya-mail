@@ -70,6 +70,14 @@ func (s AccountScope) tenant() (uuid.UUID, bool) {
 }
 
 type EmailRepository interface {
+	// Sender domains (pg_sending_domain.go).
+	ListSendingDomains(ctx context.Context, orgID uuid.UUID) ([]models.SendingDomain, *errx.Error)
+	GetSendingDomain(ctx context.Context, orgID, id uuid.UUID) (*models.SendingDomain, *errx.Error)
+	CreateSendingDomain(ctx context.Context, orgID uuid.UUID, req *models.SaveSendingDomainRequest) (uuid.UUID, *errx.Error)
+	UpdateSendingDomainSetup(ctx context.Context, orgID, id uuid.UUID, provider models.SendingDomainProvider, selectors []string) *errx.Error
+	RecordSendingDomainCheck(ctx context.Context, id uuid.UUID, state string, spf bool, spfRecord string, dkim, dmarc bool, dmarcPolicy, summary string, checkedAt time.Time) *errx.Error
+	DeleteSendingDomain(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+
 	Search(ctx context.Context, userID, search string, cursor, tag *string, limit int32, allowedAccountIDs []uuid.UUID) (*models.EmailsResult, *errx.Error)
 	Get(ctx context.Context, userID, emailAccountID string) (*models.Email, *errx.Error)
 	GetByID(ctx context.Context, emailAccountID uuid.UUID) (*models.Email, *errx.Error)
