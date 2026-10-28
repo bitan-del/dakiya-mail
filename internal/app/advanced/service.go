@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"math/rand"
 	"net/mail"
 	"strings"
@@ -51,6 +52,15 @@ type Service interface {
 	RecordInboundComplaint(ctx context.Context, emailAccountID uuid.UUID, originalMessageID, complainedRecipient, provider string) *errx.Error
 
 	ShouldSuppressRecipient(ctx context.Context, organizationID uuid.UUID, recipient string) (bool, string, *errx.Error)
+
+	ListSuppressions(ctx context.Context, organizationID uuid.UUID, query, source string, limit int, cursor *uuid.UUID) (*models.SuppressionListResult, *errx.Error)
+	AddSuppressions(ctx context.Context, organizationID uuid.UUID, req *models.AddSuppressionsRequest) (*models.SuppressionImportResult, *errx.Error)
+	RemoveSuppression(ctx context.Context, organizationID, id uuid.UUID) *errx.Error
+	RemoveSuppressionEmails(ctx context.Context, organizationID uuid.UUID, emails []string) (int, *errx.Error)
+	ImportSuppressions(ctx context.Context, organizationID uuid.UUID, r io.Reader, format SuppressionFormat, listName, reason string) (*models.SuppressionImportResult, *errx.Error)
+	ListSuppressionHashLists(ctx context.Context, organizationID uuid.UUID) ([]models.SuppressionHashList, *errx.Error)
+	DeleteSuppressionHashList(ctx context.Context, organizationID uuid.UUID, algo models.SuppressionHashAlgo, listName string) (int64, *errx.Error)
+	ExportSuppressions(ctx context.Context, organizationID uuid.UUID, w io.Writer, format SuppressionFormat) (int, *errx.Error)
 	// Unsubscribe suppresses a contact in response to a List-Unsubscribe action
 	// (one-click POST or the manual link). Always suppresses — it's an explicit
 	// recipient request, independent of the auto-suppress settings.
@@ -526,6 +536,24 @@ func (s *service) Unsubscribe(ctx context.Context, campaignID, contactID uuid.UU
 		CampaignID:     &campaignID,
 	}); err != nil {
 		return toErrx(err)
+	}
+
+	// Record the unsubscribe so it counts on the dashboard; a repeat click is a no-op.
+	inserted, err := s.repo.CreateDeliverabilityEvent(ctx, &models.DeliverabilityEvent{
+		OrganizationID: *campaign.OrganizationID,
+		CampaignID:     &campaignID,
+		ContactID:      &contactID,
+		EventType:      models.DeliverabilityEventUnsubscribe,
+		Provider:       "unsubscribe_link",
+		RecipientEmail: contact.Email,
+		Reason:         "one-click unsubscribe",
+		IdempotencyKey: "unsub:" + campaignID.String() + ":" + contactID.String(),
+	})
+	if err != nil {
+		return toErrx(err)
+	}
+	if !inserted {
+		return nil
 	}
 
 	s.emit(ctx, *campaign.OrganizationID, models.WebhookEventCampaignUnsubscribed, map[string]any{

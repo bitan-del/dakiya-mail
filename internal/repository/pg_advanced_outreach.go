@@ -31,6 +31,14 @@ type AdvancedOutreachRepository interface {
 
 	IsRecipientSuppressed(ctx context.Context, organizationID uuid.UUID, email string) (*models.SuppressedRecipient, error)
 	UpsertSuppressedRecipient(ctx context.Context, entry *models.SuppressedRecipient) error
+	ListSuppressions(ctx context.Context, organizationID uuid.UUID, query, source string, limit int, cursor *uuid.UUID) (*models.SuppressionListResult, error)
+	BulkInsertSuppressedRecipients(ctx context.Context, organizationID uuid.UUID, emails []string, reason string, source models.DeliverabilityEventType, expiresAt *time.Time) (int, error)
+	DeleteSuppressedRecipient(ctx context.Context, organizationID, id uuid.UUID) (bool, error)
+	DeleteSuppressedEmails(ctx context.Context, organizationID uuid.UUID, emails []string) (int, error)
+	InsertSuppressedHashes(ctx context.Context, organizationID uuid.UUID, algo models.SuppressionHashAlgo, listName string, hashes []string) (int, error)
+	ListSuppressionHashLists(ctx context.Context, organizationID uuid.UUID) ([]models.SuppressionHashList, error)
+	DeleteSuppressionHashList(ctx context.Context, organizationID uuid.UUID, algo models.SuppressionHashAlgo, listName string) (int64, error)
+	EachSuppressedEmail(ctx context.Context, organizationID uuid.UUID, fn func(entry *models.SuppressedRecipient) error) error
 
 	// CreateDeliverabilityEvent reports false when the idempotency key was already recorded.
 	CreateDeliverabilityEvent(ctx context.Context, event *models.DeliverabilityEvent) (bool, error)
@@ -365,17 +373,29 @@ func (r *advancedOutreachRepository) MarkVariantEvent(ctx context.Context, campa
 	return err
 }
 
+// IsRecipientSuppressed checks the plaintext list first, then the hashed lists.
 func (r *advancedOutreachRepository) IsRecipientSuppressed(ctx context.Context, organizationID uuid.UUID, email string) (*models.SuppressedRecipient, error) {
 	query := `
-		SELECT id, organization_id, email, reason, source, campaign_id, expires_at, metadata, created_at, updated_at
+		SELECT ` + suppressedRecipientColumns + `
 		FROM suppressed_recipients
 		WHERE organization_id = $1
 		  AND LOWER(email) = LOWER($2)
 		  AND (expires_at IS NULL OR expires_at > NOW())
 	`
+	out, err := scanSuppressedRecipient(r.db.QueryRow(ctx, query, organizationID, email))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return r.findHashedSuppression(ctx, organizationID, email)
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+func scanSuppressedRecipient(row pgx.Row) (*models.SuppressedRecipient, error) {
 	var out models.SuppressedRecipient
 	var metadata []byte
-	if err := r.db.QueryRow(ctx, query, organizationID, email).Scan(
+	if err := row.Scan(
 		&out.ID,
 		&out.OrganizationID,
 		&out.Email,
@@ -387,9 +407,6 @@ func (r *advancedOutreachRepository) IsRecipientSuppressed(ctx context.Context, 
 		&out.CreatedAt,
 		&out.UpdatedAt,
 	); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 	if len(metadata) > 0 {

@@ -129,6 +129,9 @@ const (
 	// spine so the settings page and mailbox lists refresh for every member.
 	AuditEntityPoolLink  AuditEntityType = "pool_link"
 	AuditEntityCloudLink AuditEntityType = "cloud_link"
+
+	// Suppression list entries and hashed suppression lists.
+	AuditEntitySuppression AuditEntityType = "suppression"
 )
 
 // AuditActor is the minimal identity of the member who performed an action,

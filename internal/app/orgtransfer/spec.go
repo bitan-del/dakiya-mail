@@ -299,6 +299,11 @@ var Tables = []Table{
 		Note:  "Suppression must travel, or the destination re-mails people who already opted out.",
 	},
 	{
+		Name: "suppressed_hashes", Group: models.OrgDataGroupContacts,
+		Scope: scopeOrg,
+		Note:  "Hashed advertiser suppression lists; same reason as suppressed_recipients.",
+	},
+	{
 		Name: "campaign_folders", Group: models.OrgDataGroupCampaigns,
 		Scope: `campaign_id IN ` + orgCampaigns,
 	},
