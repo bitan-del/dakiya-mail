@@ -48,6 +48,7 @@ GHSA-qwww-vcr4-c8h2
 # reaches the optimizer. Re-evaluate with the Astro 7 migration.
 GHSA-26w7-cxv4-gfx2
 
-# sharp < 0.35.4 libvips advisory (GHSA-rgj7-g3m4-5g8c). docs/ is on 0.35.4;
+# sharp < 0.35.5 libvips and librsvg advisories. docs/ is on 0.35.5 or later;
 # site/ stays on 0.34.5 for the same Cloudflare Pages reason as above.
 GHSA-rgj7-g3m4-5g8c
+GHSA-wq5f-xc86-pv6w
