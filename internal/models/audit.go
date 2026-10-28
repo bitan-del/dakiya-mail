@@ -138,6 +138,8 @@ const (
 	AuditEntitySendingDomain AuditEntityType = "sending_domain"
 	// Sender brands and their mailbox assignments.
 	AuditEntityBrand AuditEntityType = "brand"
+	// Hosted signup forms.
+	AuditEntitySignupForm AuditEntityType = "signup_form"
 )
 
 // AuditActor is the minimal identity of the member who performed an action,

@@ -62,6 +62,11 @@ func Run(
 	// rotatable from the dashboard.
 	r.POST("/api/v1/integrations/inbound/calendly/:secret", h.InboundCalendly)
 	r.POST("/api/v1/integrations/inbound/cal-com/:secret", h.InboundCalCom)
+	// Hosted signup forms. Public by design: the slug is the address, a hidden
+	// honeypot drops bots, and posts share the per-IP auth budget.
+	r.GET("/f/:slug", h.ShowSignupForm)
+	r.GET("/f/:slug/confirm", h.ConfirmSignupForm)
+	r.POST("/f/:slug", m.AuthIPRateLimitMiddleware(), h.SubmitSignupForm)
 	// Amazon SES notifications via SNS; the SNS signature is verified in the handler.
 	r.POST("/api/v1/integrations/inbound/amazon-ses/:secret", h.InboundAmazonSES)
 	// Generic per-automation inbound trigger: the token in the path is the
@@ -722,6 +727,16 @@ func Run(
 			deliverability.Use(m.RequireOrganization(), m.RequireAccess(models.PermSendCampaigns, models.APIPermWriteCampaigns))
 			{
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
+			}
+
+			// Signup forms (dashboard side; the public pages are /f/:slug).
+			forms := protected.Group("/signup-forms")
+			forms.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				forms.GET("", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.ListSignupForms)
+				forms.POST("", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.CreateSignupForm)
+				forms.PATCH("/:id", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.UpdateSignupForm)
+				forms.DELETE("/:id", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.DeleteSignupForm)
 			}
 
 			// Brands: sender identities whose footer goes on their mailboxes' campaign mail.

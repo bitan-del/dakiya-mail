@@ -25,6 +25,7 @@ import AnalyticsPage from './app/app/analytics/page';
 import DeliverabilityPage from './app/app/deliverability/page';
 import SuppressionPage from './app/app/suppression/page';
 import SegmentsPage from './app/app/contacts/segments/page';
+import SignupFormsPage from './app/app/contacts/forms/page';
 import DomainsPage from './app/app/emails/domains/page';
 import BrandsPage from './app/app/emails/brands/page';
 import DeliverabilityEventsPage from './app/app/deliverability/events/page';
@@ -308,6 +309,10 @@ const router = createBrowserRouter([
           {
             path: "emails/domains",
             element: <DomainsPage />,
+          },
+          {
+            path: "contacts/forms",
+            element: <SignupFormsPage />,
           },
           {
             path: "contacts/segments",

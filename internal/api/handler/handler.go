@@ -48,6 +48,7 @@ import (
 	"github.com/bitan-del/dakiya-mail/internal/app/research"
 	"github.com/bitan-del/dakiya-mail/internal/app/salesblink"
 	"github.com/bitan-del/dakiya-mail/internal/app/sequence"
+	"github.com/bitan-del/dakiya-mail/internal/app/signupform"
 	"github.com/bitan-del/dakiya-mail/internal/app/skills"
 	"github.com/bitan-del/dakiya-mail/internal/app/socket"
 	"github.com/bitan-del/dakiya-mail/internal/app/stripe"
@@ -149,6 +150,8 @@ type Handler struct {
 	// Compose mailbox picker: scores the org's mailboxes for a recipient
 	// (affinity, budget, auth health) and backs auto selection.
 	ComposeService compose.Service
+	// SignupFormService runs hosted signup forms (/f/:slug).
+	SignupFormService signupform.Service
 
 	// Admin
 	AdminService         admin.AdminService

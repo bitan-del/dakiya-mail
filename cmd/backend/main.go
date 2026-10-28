@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/bitan-del/dakiya-mail/internal/app/signupform"
 	"log"
 	"net/http"
 	"net/url"
@@ -224,6 +225,7 @@ func main() {
 	var templateService template.TemplateService
 	var emailSendService emailsend.EmailSendService
 	var composeService compose.Service
+	var signupFormService signupform.Service
 
 	// Admin
 	var adminService admin.AdminService
@@ -1307,6 +1309,7 @@ func main() {
 			aware.WireOrgRisk(orgRiskRepository)
 		}
 		composeService = compose.NewService(emailRepostory, repository.NewComposeRepository(primaryDB))
+		signupFormService = signupform.NewService(repository.NewSignupFormRepository(primaryDB.Pool), emailRepostory, contactService, emailSendService)
 		// uniboxService is constructed here (rather than alongside the
 		// other service constructors above) because cancel-scheduled
 		// needs the Cloud Tasks client for best-effort DeleteTask, and
@@ -1871,9 +1874,10 @@ func main() {
 		TeamService: teamService,
 
 		// Email send & templates
-		TemplateService:  templateService,
-		EmailSendService: emailSendService,
-		ComposeService:   composeService,
+		TemplateService:   templateService,
+		EmailSendService:  emailSendService,
+		ComposeService:    composeService,
+		SignupFormService: signupFormService,
 
 		// Admin
 		AdminService:         adminService,

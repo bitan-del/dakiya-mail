@@ -73,6 +73,17 @@ It supports type-ahead search, and typing an unmatched name offers **Create** to
 
 Categories also drive automation: a sequence can run **Add tag** or **Remove tag** as a contact moves through a flow, so a label can be applied automatically on a positive reply.
 
+## Signup forms
+
+**Contacts** > **Forms** hosts a signup page at `<your API address>/f/<address>` for each form you create. Share the link, or use **Embed** to copy an iframe for your own site. Everyone who signs up becomes a subscribed contact with source **form**, tagged with the categories you pick and a `source` custom field of `form:<address>`.
+
+- **Fields**: email is always asked; add first name, last name, company or phone.
+- **Double opt-in**: the visitor gets an email from the mailbox you choose and only becomes a contact after clicking its link. The link works once and expires after 7 days, and an address gets at most one confirmation email every 10 minutes.
+- **After signup**: show your own thank-you message, or redirect to a page on your site.
+- **Spam**: a hidden field traps bots, and submissions share the per-address rate limit of the sign-in pages.
+
+Signups pass your [contact intake rules](#contact-intake-rules). A rejected address still sees the normal thank-you, so a form never reveals who is already on your list. A site posting with JavaScript can send JSON to the same address and gets `{ok, needs_confirmation, message}` back.
+
 ## Contact intake rules
 
 **Settings** > **Sending** > **Contact intake** sets rules every new contact must pass, whether it comes from the API, a file import or a Google Sheets sync. Both are off by default.
