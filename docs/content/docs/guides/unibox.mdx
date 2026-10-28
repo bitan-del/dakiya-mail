@@ -58,6 +58,8 @@ A conversation is unread when any message inside is unseen, marked by a bright l
 
 Reply, forward, or hover any single message to reply to it specifically. The composer only appears when you ask for it. Replies go from the mailbox that owns the thread, so conversations stay on one account. You can apply a saved **template** or **Insert booking link**.
 
+Templates live under **Templates**. Each has a subject, a plain-text body, and optionally an HTML body. **Design visually** on the HTML body opens a drag-and-drop builder with email-safe blocks (text, images, buttons, columns, dividers). **Use this design** puts the result in the HTML body as table-based markup with the styles inlined, which is what mail clients render reliably. Merge fields such as `{{.FirstName}}` are kept as typed, and you can still edit the HTML by hand afterwards. Cold outreach usually lands better as plain text, so keep designed HTML for newsletters, onboarding and transactional mail. The same templates feed [transactional sends](/guides/transactional-email/).
+
 ### AI drafts
 
 AI lives at your cursor, not in the toolbar. With the cursor in the body, click the sparkle (or press **⌘J**) for three options: write something inline, **Draft a reply from this thread**, or **Continue writing**.
