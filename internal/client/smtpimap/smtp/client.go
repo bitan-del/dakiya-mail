@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bitan-del/dakiya-mail/internal/client/netbind"
+	"github.com/bitan-del/dakiya-mail/internal/client/sesapi"
 	"github.com/bitan-del/dakiya-mail/internal/errx"
 	"github.com/bitan-del/dakiya-mail/internal/models"
 	"github.com/bitan-del/dakiya-mail/internal/pkg/mailhdr"
@@ -239,6 +240,11 @@ func (c *Client) sendRaw(ctx context.Context, from string, to []string, data []b
 	case models.AuthOAuth2:
 		host = c.Oauth2.Host
 		port = c.Oauth2.Port
+	}
+
+	// A mailbox whose host is the SES API endpoint sends through the API with its access keys.
+	if region, ok := sesapi.Region(host); ok && c.AuthType == models.AuthPlain {
+		return c.sendViaSESAPI(ctx, region, from, to, data)
 	}
 
 	addr := fmt.Sprintf("%s:%d", host, port)

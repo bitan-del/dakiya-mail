@@ -39,10 +39,13 @@ Choose **Amazon SES** to send from a domain you have verified in SES. SES only s
 |-------|---------------|
 | Email | An address on your SES-verified domain |
 | Region | The SES region the domain is verified in. Mail goes out through `email-smtp.<region>.amazonaws.com` on port `587` |
-| Username and password (SES) | SES SMTP credentials, created in the SES console under **SMTP settings**. These are not your AWS access keys |
+| Connect with | **SMTP credentials** or **API access keys** (see below) |
+| Username and password (SES) | With SMTP: SES SMTP credentials, created in the SES console under **SMTP settings**, not your AWS access keys. With API keys: an IAM access key id and secret |
 | Inbox server, username and password | The IMAP login for that address's real mailbox, usually with an app password |
 
-Connecting checks the SES SMTP login and the inbox login. It does not send a message, so a From address outside your verified domain is only rejected by SES when mail goes out.
+**API access keys** send through the SES v2 API (`SendEmail` with the raw message) instead of SMTP, from the same worker and source address. Use a dedicated IAM user limited to `ses:SendEmail`, `ses:SendRawEmail` and `ses:GetAccount`. The API answers with SES's message id directly, which is what [Amazon SES events](/guides/integrations/#amazon-ses-events) match on, and an unverified sender or a paused account is reported as a sending problem rather than a bad recipient, so nobody is suppressed for it. The mailbox stores `email.<region>.amazonaws.com` as its server, which is how Dakiya Mail knows to use the API.
+
+Connecting checks the SES login (for API keys, that the account can send) and the inbox login. It does not send a message, so a From address outside your verified domain is only rejected by SES when mail goes out.
 
 <Callout type="warn" title="Before you send through SES">
   An SES account still in the sandbox can only send to addresses you have verified in SES; request production access first. AWS's policy for SES requires recipients who asked for your mail, and SES reviews an account whose complaint rate climbs past about `0.1%`. Keep SES's email feedback forwarding on so bounce and complaint notices reach the inbox, or connect [Amazon SES events](/guides/integrations/#amazon-ses-events) for SES's own feed.

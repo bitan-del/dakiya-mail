@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bitan-del/dakiya-mail/internal/app/dailythrottle"
+	"github.com/bitan-del/dakiya-mail/internal/client/sesapi"
 	"github.com/bitan-del/dakiya-mail/internal/config"
 	"github.com/bitan-del/dakiya-mail/internal/errx"
 	"github.com/bitan-del/dakiya-mail/internal/infrastructure/pubsub"
@@ -300,7 +301,9 @@ func validateSMTPIMAPInput(data *models.NewSMTPIMAPAccount) *errx.Error {
 	if strings.TrimSpace(data.SMTP.Host) == "" {
 		return errx.ErrEmailSMTPHost
 	}
-	if data.SMTP.Port != 465 && data.SMTP.Port != 587 {
+	if _, sesAPI := sesapi.Region(data.SMTP.Host); sesAPI {
+		data.SMTP.Port = sesapi.Port
+	} else if data.SMTP.Port != 465 && data.SMTP.Port != 587 {
 		return errx.ErrEmailSMTPPort
 	}
 	if strings.TrimSpace(data.IMAP.Host) == "" {
