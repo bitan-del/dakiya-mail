@@ -77,7 +77,7 @@ func TestVerifyAcceptsTrailingDotAndCase(t *testing.T) {
 	r := healthyTarget()
 	r.cnames["track.acme.com"] = target
 
-	res := VerifyWith(context.Background(), r, "  TRACK.Acme.com.  ", "T.Dakiya Mail.COM.")
+	res := VerifyWith(context.Background(), r, "  TRACK.Acme.com.  ", "T.DakiyaMail.COM.")
 	if !res.Verified {
 		t.Fatalf("normalization should not change the verdict: %+v", res)
 	}
