@@ -66,6 +66,8 @@ export default interface DeliverabilityDashboard {
     reply_count: number;
     open_count: number;
     click_count: number;
+    delivered_count: number;
+    deferred_count: number;
     suppressed_recipients: number;
     dlq_pending: number;
 
@@ -81,6 +83,7 @@ export default interface DeliverabilityDashboard {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    delivery_rate?: number;
 
     spam_placement_rate?: number | null;
     inbox_placement_rate?: number | null;

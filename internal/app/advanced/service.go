@@ -1228,6 +1228,12 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 	if req.ContactID != nil {
 		payload["contact_id"] = req.ContactID.String()
 	}
+	if req.TaskID != nil {
+		payload["task_id"] = req.TaskID.String()
+	}
+	if bt, ok := req.Metadata["bounce_type"].(string); ok && bt != "" {
+		payload["bounce_type"] = bt
+	}
 	switch eventType {
 	case models.DeliverabilityEventBounce:
 		s.emit(ctx, organizationID, models.WebhookEventCampaignEmailBounced, payload)
@@ -1236,6 +1242,10 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 		s.emit(ctx, organizationID, models.WebhookEventDeliverabilityComplaint, payload)
 	case models.DeliverabilityEventUnsubscribe:
 		s.emit(ctx, organizationID, models.WebhookEventCampaignUnsubscribed, payload)
+	case models.DeliverabilityEventDelivered:
+		if req.CampaignID != nil {
+			s.emit(ctx, organizationID, models.WebhookEventCampaignEmailDelivered, payload)
+		}
 	}
 
 	// In-app notification to the campaign owner for bounce/complaint (gated by

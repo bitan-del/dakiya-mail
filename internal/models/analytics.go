@@ -61,6 +61,9 @@ type CampaignSummary struct {
 	Replies      int `json:"replies"`
 	Bounces      int `json:"bounces"`
 	Unsubscribes int `json:"unsubscribes"`
+	// Delivered and Deferred come from provider feeds (Amazon SES); zero without one.
+	Delivered int `json:"delivered"`
+	Deferred  int `json:"deferred"`
 
 	OpenRate   float64 `json:"open_rate"`   // percentage
 	ClickRate  float64 `json:"click_rate"`  // percentage

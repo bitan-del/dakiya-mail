@@ -264,10 +264,12 @@ export default function DeliverabilityPage() {
                                     <div className="divide-y divide-slate-200/60">
                                         {[
                                             { label: "Sent", value: d?.emails_sent, dot: "bg-slate-400" },
+                                            { label: "Delivered", value: d?.delivered_count, dot: "bg-teal-500" },
+                                            { label: "Deferred", value: d?.deferred_count, dot: "bg-yellow-400" },
                                             { label: "Opens", value: d?.open_count, dot: "bg-emerald-500" },
                                             { label: "Clicks", value: d?.click_count, dot: "bg-violet-500" },
                                             { label: "Replies", value: d?.reply_count, dot: "bg-sky-500" },
-                                            { label: "Bounces", value: d?.bounce_count, dot: "bg-rose-500" },
+                                            { label: "Bounces (hard)", value: d?.bounce_count, dot: "bg-rose-500" },
                                             { label: "Complaints", value: d?.complaint_count, dot: "bg-amber-500" },
                                             { label: "Unsubscribes", value: d?.unsubscribe_count, dot: "bg-orange-500" },
                                         ].map((row) => (

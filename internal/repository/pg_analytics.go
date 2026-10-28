@@ -122,6 +122,17 @@ func (r *analyticsRepository) GetCampaignSummary(ctx context.Context, userID, ca
 		return nil, errx.InternalError()
 	}
 
+	feedQuery := `
+		SELECT COUNT(*) FILTER (WHERE event_type = 'delivered'),
+		       COUNT(*) FILTER (WHERE event_type = 'deferred')
+		FROM deliverability_events
+		WHERE campaign_id = $1 AND event_type IN ('delivered', 'deferred')
+	`
+	if err := r.DB.QueryRow(ctx, feedQuery, campaignID).Scan(&summary.Delivered, &summary.Deferred); err != nil {
+		db.CaptureError(err, feedQuery, []any{campaignID}, "queryrow")
+		return nil, errx.InternalError()
+	}
+
 	// Calculate rates
 	if summary.EmailsSent > 0 {
 		summary.OpenRate = float64(summary.UniqueOpens) / float64(summary.EmailsSent) * 100
