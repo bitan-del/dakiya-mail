@@ -722,6 +722,21 @@ func Run(
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
 			}
 
+			// Suppression list manager: plaintext entries plus hashed (md5/sha256)
+			// advertiser lists. Reads use the contacts read scope; writes the bulk scope.
+			suppression := protected.Group("/suppression")
+			suppression.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				suppression.GET("", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.ListSuppressions)
+				suppression.GET("/export", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.ExportSuppressions)
+				suppression.GET("/hash-lists", m.RequireAccess(models.PermViewContacts, models.APIPermReadContacts), h.ListSuppressionHashLists)
+				suppression.POST("", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.AddSuppressions)
+				suppression.POST("/remove", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.RemoveSuppressionEmails)
+				suppression.POST("/import", m.RequireAccess(models.PermManageContacts, models.APIPermBulkContacts), h.ImportSuppressions)
+				suppression.POST("/hash-lists/delete", m.RequireAccess(models.PermManageContacts, models.APIPermBulkContacts), h.DeleteSuppressionHashList)
+				suppression.DELETE("/:id", m.RequireAccess(models.PermManageContacts, models.APIPermWriteContacts), h.RemoveSuppression)
+			}
+
 			// Gmail Postmaster Tools. The report is an analytics read, so API keys may
 			// call it; connecting the instance's Google credentials is a settings change.
 			postmasterRead := protected.Group("/deliverability/postmaster")

@@ -924,6 +924,7 @@ func (r *campaignProgressRepository) FindNextRoutedPair(ctx context.Context, cam
 		      AND LOWER(sr.email) = LOWER(c.email)
 		      AND (sr.expires_at IS NULL OR sr.expires_at > NOW())
 		  )
+		  AND NOT ` + suppressedHashMatch("(SELECT organization_id FROM campaigns WHERE id = $1)", "c.email") + `
 		  -- Addresses the pre-send gates in the campaign task would refuse.
 		  -- Without this the finder keeps handing back the same undeliverable
 		  -- contact, the task skips it, and the campaign never reaches the
@@ -1050,7 +1051,7 @@ func (r *campaignProgressRepository) RouteContact(ctx context.Context, campaignI
 		         WHERE camp.id = $1
 		           AND LOWER(sr.email) = LOWER(c.email)
 		           AND (sr.expires_at IS NULL OR sr.expires_at > NOW())
-		       ) AS suppressed,
+		       ) OR ` + suppressedHashMatch("(SELECT organization_id FROM campaigns WHERE id = $1)", "c.email") + ` AS suppressed,
 		       ` + undeliverableClause("$1") + ` AS undeliverable,
 		       ` + sunsetClause("$1") + ` AS sunset
 		FROM campaign_leads cl

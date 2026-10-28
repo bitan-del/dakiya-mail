@@ -23,6 +23,7 @@ import CampaignSchedule from './app/app/campaigns/[id]/schedule/page';
 import CampaignSteps from './app/app/campaigns/[id]/steps/page';
 import AnalyticsPage from './app/app/analytics/page';
 import DeliverabilityPage from './app/app/deliverability/page';
+import SuppressionPage from './app/app/suppression/page';
 import PipelinesPage from './app/app/crm/pipelines/page';
 import DealsPage from './app/app/crm/deals/page';
 import TasksPage from './app/app/crm/tasks/page';
@@ -291,6 +292,10 @@ const router = createBrowserRouter([
           {
             path: "deliverability",
             element: <DeliverabilityPage />,
+          },
+          {
+            path: "suppression",
+            element: <SuppressionPage />,
           },
           {
             path: "crm",
