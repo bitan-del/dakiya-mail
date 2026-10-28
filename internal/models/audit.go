@@ -136,6 +136,8 @@ const (
 	AuditEntitySegment AuditEntityType = "segment"
 	// Sender domains and their DNS checks.
 	AuditEntitySendingDomain AuditEntityType = "sending_domain"
+	// Sender brands and their mailbox assignments.
+	AuditEntityBrand AuditEntityType = "brand"
 )
 
 // AuditActor is the minimal identity of the member who performed an action,

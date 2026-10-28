@@ -20,7 +20,7 @@ func domainParams(c *gin.Context, withID bool) (uuid.UUID, uuid.UUID, bool) {
 	if withID {
 		parsed, err := uuid.Parse(c.Param("id"))
 		if err != nil {
-			errx.JSON(c, errx.New(errx.BadRequest, "invalid domain id"))
+			errx.JSON(c, errx.New(errx.BadRequest, "invalid id"))
 			return uuid.Nil, uuid.Nil, false
 		}
 		id = parsed

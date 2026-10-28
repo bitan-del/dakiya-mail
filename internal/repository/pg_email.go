@@ -70,6 +70,14 @@ func (s AccountScope) tenant() (uuid.UUID, bool) {
 }
 
 type EmailRepository interface {
+	// Brands (pg_brand.go).
+	ListBrands(ctx context.Context, orgID uuid.UUID) ([]models.Brand, *errx.Error)
+	GetBrand(ctx context.Context, orgID, id uuid.UUID) (*models.Brand, *errx.Error)
+	SaveBrand(ctx context.Context, orgID uuid.UUID, id *uuid.UUID, req *models.SaveBrandRequest) (uuid.UUID, *errx.Error)
+	DeleteBrand(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+	SetBrandMailboxes(ctx context.Context, orgID, brandID uuid.UUID, accountIDs []uuid.UUID) *errx.Error
+	GetBrandForAccount(ctx context.Context, accountID uuid.UUID) (*models.Brand, error)
+
 	// Sender domains (pg_sending_domain.go).
 	ListSendingDomains(ctx context.Context, orgID uuid.UUID) ([]models.SendingDomain, *errx.Error)
 	GetSendingDomain(ctx context.Context, orgID, id uuid.UUID) (*models.SendingDomain, *errx.Error)

@@ -617,6 +617,18 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 		return nil
 	}
 
+	// STEP 15.95: The mailbox's brand footer (name, postal address, unsubscribe link).
+	if brand, berr := s.emailRepo.GetBrandForAccount(ctx, account.ID); berr != nil {
+		log.Warn().Err(berr).Str("account_id", account.ID.String()).Msg("campaign send: could not load brand footer")
+	} else if footerPlain, footerHTML := brand.Footer(unsubscribeURL); footerPlain != "" {
+		if bodyPlain != "" {
+			bodyPlain += footerPlain
+		}
+		if bodyHTML != "" {
+			bodyHTML += footerHTML
+		}
+	}
+
 	// STEP 16: Send email to worker via Kafka
 	emailMsg := EmailMessage{
 		From:           account.Email,

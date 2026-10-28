@@ -31,6 +31,12 @@ With two-factor authentication on, generate an app password in your provider's s
   Credentials and both connections are validated when you add the account, so wrong settings fail immediately rather than silently at send time. Tokens and credentials are sealed with envelope encryption before they touch storage.
 </Callout>
 
+### Brands
+
+**Brands** (under Accounts) lets one workspace send as several identities: an agency's clients, or a company's product lines. A brand has a name, website, postal address and an optional extra footer line, and owns a set of mailboxes. A mailbox belongs to at most one brand; assigning it to another moves it.
+
+Campaign mail from a brand's mailboxes ends with the brand's footer: the name, the postal address (CAN-SPAM requires one in commercial email), the extra line, and an unsubscribe link when the campaign has unsubscribe links on. Both the footer and its unsubscribe link can be turned off per brand. Warmup mail, unibox replies and transactional sends never get the footer. Deleting a brand leaves its mailboxes sending without one. Brands travel with a [workspace export](/guides/workspace-export-import/).
+
 ### Amazon SES
 
 Choose **Amazon SES** to send from a domain you have verified in SES. SES only sends mail, so the mailbox pairs it with the domain's own inbox (Google Workspace, Zoho Mail or any IMAP server): SES carries outgoing mail and the inbox receives replies, bounces and warmup mail. It is stored as an ordinary IMAP + SMTP mailbox, so warmup, the unibox and reply tracking work the same way.

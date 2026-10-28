@@ -44,6 +44,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/app/suppression": "Suppression",
   "/app/contacts/segments": "Segments",
   "/app/emails/domains": "Sender domains",
+  "/app/emails/brands": "Brands",
   "/app/deliverability/events": "Deliverability events",
   "/app/crm/pipelines": "Pipelines",
   "/app/crm/deals": "Deals",
