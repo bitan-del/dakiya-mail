@@ -254,6 +254,11 @@ var Tables = []Table{
 		Scope: `contact_id IN ` + orgContacts,
 	},
 	{
+		Name: "contact_segments", Group: models.OrgDataGroupContacts,
+		Scope: scopeOrg,
+		Note:  "Saved filters; category and campaign ids inside them keep their source ids.",
+	},
+	{
 		Name: "contact_notes", Group: models.OrgDataGroupContacts,
 		Scope: scopeOrg,
 	},

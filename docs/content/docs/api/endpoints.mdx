@@ -95,6 +95,12 @@ All paths below are relative to the versioned base URL `https://api.dakiyamail.c
 | POST | `/contacts/:id/research` | `AI_RESEARCH` |
 | GET | `/contacts/:id/research` | `AI_RESEARCH` |
 | POST | `/contacts/research/batch` | `AI_RESEARCH` |
+| GET | `/segments` | `READ_CONTACTS` |
+| GET | `/segments/:id` | `READ_CONTACTS` |
+| POST | `/segments` | `WRITE_CONTACTS` |
+| PATCH | `/segments/:id` | `WRITE_CONTACTS` |
+| DELETE | `/segments/:id` | `WRITE_CONTACTS` |
+| POST | `/segments/:id/enroll` | `BULK_CONTACTS` |
 | GET | `/suppression` | `READ_CONTACTS` |
 | GET | `/suppression/export` | `READ_CONTACTS` |
 | GET | `/suppression/hash-lists` | `READ_CONTACTS` |
@@ -107,6 +113,8 @@ All paths below are relative to the versioned base URL `https://api.dakiyamail.c
 `GET /contacts/custom-fields` lists the distinct custom-field keys used across your contacts (frequency-ranked), for building personalization pickers. It returns a flat string array under `data`, capped at 200 keys.
 
 The import pair is two steps over the same file: preview parses it and suggests a column mapping, commit applies the mapping you chose. Commit takes the stricter `BULK_CONTACTS` scope because one call writes up to 50,000 rows. A mapping problem, an unusable custom-field name or no `email` column, is a `400` on the whole request; see [contacts](/api/reference/contacts/).
+
+Segments store a `filter` in the same shape `POST /contacts/search` takes, plus a `name` (1 to 80 characters, unique per workspace; a clash is a `409` with code `segment_name_taken`) and an optional `description`. Reads include `contact_count`, the number of contacts matching now. `POST /segments/:id/enroll` takes `campaign_id` and returns `matched`, `enrolled` (newly added) and `capped` (true when more than 100,000 matched; call it again for the rest). Enrolling twice adds nobody twice, so it needs no `Idempotency-Key`.
 
 The suppression endpoints manage the workspace's [suppression list](/guides/deliverability/#suppression-list). `GET /suppression` takes `q` (address or reason), `source` (`bounce`, `complaint`, `unsubscribe`, `manual`, `import`), `cursor` and `limit` (1 to 200). `POST /suppression` adds up to 1,000 addresses in `emails` with an optional `reason`; `POST /suppression/remove` removes up to 1,000 by address. `POST /suppression/import` is a multipart upload with `file`, `format` (`plain`, `md5` or `sha256`), `list_name` (required for hashed lists) and `reason`, up to 100 MB. `GET /suppression/export?format=plain|md5|sha256` returns CSV. Adding, removing and importing converge on the same list when repeated, so none of them need an `Idempotency-Key`.
 

@@ -73,6 +73,16 @@ It supports type-ahead search, and typing an unmatched name offers **Create** to
 
 Categories also drive automation: a sequence can run **Add tag** or **Remove tag** as a contact moves through a flow, so a label can be applied automatically on a positive reply.
 
+## Segments
+
+A **segment** is a saved set of contact filters (search, categories, custom fields, subscription, campaign membership, dates). It is not a frozen list: each time you open or use it, Dakiya Mail finds the contacts that match right now, so new contacts that fit are included and ones that no longer fit drop out.
+
+- **Save one** from **Contacts**: set your filters, then choose **Save as segment**. Sort order is not part of a segment.
+- **Open one** from **Contacts** > **Segments** to see its contacts in the table with the segment's filters applied. Each segment shows how many contacts match now.
+- **Enroll in campaign** adds every matching contact to a campaign in one step, with no 1,000-contact selection limit. Contacts already in the campaign are left as they are, and the result says how many were added. One enroll handles up to 100,000 contacts; run it again for the rest.
+
+Segment names are unique within a workspace, and segments travel with a [workspace export](/guides/workspace-export-import/).
+
 ## Where a contact came from
 
 Every contact records its first-touch source: how it entered the workspace, with a detail you would recognise, and when it was first seen. It is shown on the contact's **Overview** tab and as the first event of its activity timeline, and it never changes afterwards, however the contact is edited or re-imported.

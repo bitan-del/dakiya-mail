@@ -24,6 +24,15 @@ import (
 )
 
 type ContactRepository interface {
+	// Saved segments (pg_segment.go).
+	CreateSegment(ctx context.Context, orgID uuid.UUID, userID *uuid.UUID, req *models.SaveSegmentRequest) (*models.Segment, *errx.Error)
+	UpdateSegment(ctx context.Context, orgID, id uuid.UUID, req *models.SaveSegmentRequest) (*models.Segment, *errx.Error)
+	GetSegment(ctx context.Context, orgID, id uuid.UUID) (*models.Segment, *errx.Error)
+	ListSegments(ctx context.Context, orgID uuid.UUID) ([]models.Segment, *errx.Error)
+	DeleteSegment(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+	CountCampaignLeads(ctx context.Context, campaignID uuid.UUID, contactIDs []uuid.UUID) (int, *errx.Error)
+	CampaignInOrganization(ctx context.Context, orgID, campaignID uuid.UUID) (bool, *errx.Error)
+
 	Add(ctx context.Context, userID string, orgID uuid.UUID, contacts []models.AddContact) ([]models.Contact, *errx.Error)
 	GetByID(ctx context.Context, contactID uuid.UUID) (*models.Contact, *errx.Error)
 	GetByEmailAndOrganization(ctx context.Context, organizationID uuid.UUID, email string) (*models.Contact, *errx.Error)
