@@ -724,6 +724,15 @@ func Run(
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
 			}
 
+			// Transactional email: one message to one recipient, sent without the
+			// dashboard's undo window. Same scopes as composing in the unibox.
+			transactional := protected.Group("/transactional")
+			transactional.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				transactional.POST("/send", m.RequireAccess(models.PermAccessUnibox, models.APIPermWriteUnibox), h.TransactionalSend)
+				transactional.GET("/:task_id", m.RequireAccess(models.PermAccessUnibox, models.APIPermReadUnibox), h.GetTransactionalMessage)
+			}
+
 			// Sender domains: the records to publish and their DNS checks. Verify
 			// refreshes mailbox auth state, so it takes the write scope.
 			domains := protected.Group("/domains")

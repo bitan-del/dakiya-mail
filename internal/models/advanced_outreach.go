@@ -547,6 +547,7 @@ type DeliverabilityEventFilter struct {
 	Types          []DeliverabilityEventType
 	CampaignID     *uuid.UUID
 	EmailAccountID *uuid.UUID
+	TaskID         *uuid.UUID
 	Query          string
 	From           *time.Time
 	To             *time.Time

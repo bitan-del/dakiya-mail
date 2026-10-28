@@ -558,6 +558,10 @@ var Tables = []Table{
 		Scope: scopeOrg,
 	},
 	{
+		Name: "transactional_messages", Group: models.OrgDataGroupSending,
+		Scope: `task_id IN ` + orgTasks,
+	},
+	{
 		Name: "email_tasks", Group: models.OrgDataGroupSending,
 		Scope: `task_id IN ` + orgTasks,
 		Secrets: []SecretColumn{

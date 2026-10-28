@@ -37,6 +37,15 @@ All paths below are relative to the versioned base URL `https://api.dakiyamail.c
 | DELETE | `/emails/:id` | `WRITE_EMAILS` |
 | POST | `/emails/:id/send` | `SEND_CAMPAIGNS` |
 
+### Transactional email
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| POST | `/transactional/send` | `WRITE_UNIBOX` |
+| GET | `/transactional/:task_id` | `READ_UNIBOX` |
+
+`POST /transactional/send` queues one email to one recipient and returns its `task_id` and `message_id`; see [transactional email](/guides/transactional-email/) for the fields. It is side-effectful, so send an `Idempotency-Key`. Validation failures are `400` with codes `invalid_to`, `invalid_subject`, `invalid_body`, `invalid_delay_seconds`, `invalid_track_ids`, `invalid_template_id` or `invalid_email_account_id`; a suppressed recipient is `400` with `recipient_suppressed`.
+
 ### Sender domains
 
 | Method | Path | API Permission |

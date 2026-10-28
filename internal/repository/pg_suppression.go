@@ -239,12 +239,13 @@ func (r *advancedOutreachRepository) ListDeliverabilityEvents(ctx context.Contex
 		  AND ($5 = '' OR de.recipient_email ILIKE '%' || $5 || '%' OR de.reason ILIKE '%' || $5 || '%')
 		  AND ($6::timestamptz IS NULL OR de.created_at >= $6)
 		  AND ($7::timestamptz IS NULL OR de.created_at < $7)
+		  AND ($10::uuid IS NULL OR de.task_id = $10)
 		  AND ($8::uuid IS NULL OR (de.created_at, de.id) < (
 			SELECT created_at, id FROM deliverability_events WHERE id = $8 AND organization_id = $1
 		  ))
 		ORDER BY de.created_at DESC, de.id DESC
 		LIMIT $9
-	`, organizationID, types, f.CampaignID, f.EmailAccountID, strings.TrimSpace(f.Query), f.From, f.To, cursor, limit+1)
+	`, organizationID, types, f.CampaignID, f.EmailAccountID, strings.TrimSpace(f.Query), f.From, f.To, cursor, limit+1, f.TaskID)
 	if err != nil {
 		return nil, err
 	}

@@ -79,6 +79,8 @@ Returned when the request cannot be processed due to invalid syntax.
 | `invalid_engagement` | `POST /contacts/search` or `POST /contacts/export` was given an `engagement` that is not one of the documented values |
 | `lead_filter_requires_campaign` | `lead_status` or `engagement` was set without exactly one `campaign_ids` entry; both filters describe a contact inside one campaign |
 | `contact_ingestion_rejected` | `POST /contacts` included a contact that breaks the workspace's [contact intake rules](/guides/contacts-crm/#contact-intake-rules): a missing required field or an address added within the duplicate window. The whole request is refused and the message names up to 10 offending addresses with their reason |
+| `recipient_suppressed` | `POST /transactional/send` was addressed to a suppressed recipient (plain or hashed list). Nothing was queued |
+| `invalid_to`, `invalid_subject`, `invalid_body`, `invalid_delay_seconds`, `invalid_track_ids`, `invalid_template_id`, `invalid_email_account_id` | A `POST /transactional/send` field is missing or out of range; the message says which limit applies |
 | `invalid_domain` | A sender domain is not a valid domain name |
 | `invalid_dkim_selector` | A DKIM selector has characters other than letters, digits, dots and dashes, or more than 10 were given |
 | `invalid_segment_name` | A segment name is empty or longer than 80 characters |

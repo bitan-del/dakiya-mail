@@ -26,6 +26,10 @@ func (f *sesFakeOutreach) CreateDeliverabilityEvent(_ context.Context, e *models
 	return true, nil
 }
 
+func (f *sesFakeOutreach) TransactionalTrackIDs(context.Context, uuid.UUID) ([]string, error) {
+	return nil, nil
+}
+
 func (f *sesFakeOutreach) GetOutreachSettings(context.Context, uuid.UUID) (*models.AdvancedOutreachSettings, error) {
 	s := &models.AdvancedOutreachSettings{}
 	s.BouncePipeline.AutoSuppressOnBounce = true
