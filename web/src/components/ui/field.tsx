@@ -11,11 +11,11 @@
 import React from "react";
 import { SearchIcon, XIcon, ChevronUpIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PASSWORD_MANAGER_IGNORE } from "@/components/ui/passwordManagers";
 
 // 16px on mobile so iOS Safari doesn't auto-zoom on focus; 12.5px from md up.
 const base =
     "h-7 px-2.5 rounded-md border border-slate-200 bg-white text-[16px] md:text-[12.5px] text-slate-900 placeholder:text-slate-400 outline-none transition-colors focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50 disabled:text-slate-400";
-
 export function TextInput({
     value,
     onChange,
@@ -24,6 +24,7 @@ export function TextInput({
     disabled,
     autoFocus,
     autoComplete,
+    ignorePasswordManagers,
     className,
     onKeyDown,
     onBlur,
@@ -38,6 +39,9 @@ export function TextInput({
     autoFocus?: boolean;
     // Credential fields need it or password managers cannot fill or save them.
     autoComplete?: string;
+    // For third-party credentials (a mailbox's SMTP/IMAP login): keeps password
+    // managers from filling in the user's own Dakiya Mail sign-in.
+    ignorePasswordManagers?: boolean;
     className?: string;
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
     // Fires when the field loses focus. Use it for inputs that parse their
@@ -57,6 +61,7 @@ export function TextInput({
             disabled={disabled}
             autoFocus={autoFocus}
             autoComplete={autoComplete}
+            {...(ignorePasswordManagers ? PASSWORD_MANAGER_IGNORE : {})}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             onBlur={onBlur}
