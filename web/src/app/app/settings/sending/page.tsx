@@ -10,7 +10,8 @@ import { NoAccess } from "@/components/layout/NoAccess";
 import { usePermission } from "@/hooks/usePermission";
 import SaveStatus from "../_components/SaveStatus";
 import { SelectMenu, type SelectOption } from "@/components/ui/select-menu";
-import { NumberInput } from "@/components/ui/field";
+import { NumberInput, TextInput } from "@/components/ui/field";
+import { cn } from "@/lib/utils";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useRegisterUnsaved } from "@/hooks/context/unsaved";
 import useTimezones from "@/lib/api/hooks/app/useTimezones";
@@ -73,6 +74,25 @@ function SendingSettings() {
             setDraft((prev) =>
                 prev
                     ? { ...prev, send_time_optimization: { ...prev.send_time_optimization, ...next } }
+                    : prev,
+            );
+        },
+        [],
+    );
+
+    const ingestion = draft?.contact_ingestion ?? { duplicate_window_days: 0, required_fields: [] };
+    const patchIngestion = React.useCallback(
+        (next: Partial<NonNullable<OutreachSettings["contact_ingestion"]>>) => {
+            setDraft((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          contact_ingestion: {
+                              duplicate_window_days: prev.contact_ingestion?.duplicate_window_days ?? 0,
+                              required_fields: prev.contact_ingestion?.required_fields ?? [],
+                              ...next,
+                          },
+                      }
                     : prev,
             );
         },
@@ -200,6 +220,37 @@ function SendingSettings() {
             </Section>
 
             <Section
+                eyebrow="Contact intake"
+                description="Rules every new contact passes, whether it arrives through the API, a file import or a Google Sheets sync. An API request with a rejected contact is refused as a whole; an import fails only the rejected rows, with the reason."
+            >
+                {isLoading || !draft ? (
+                    <div className="h-7 w-40 rounded bg-slate-100 animate-pulse" />
+                ) : (
+                    <>
+                        <Row
+                            label="Reject recent duplicates"
+                            description="Refuse an address already added within this many days. 0 turns it off."
+                        >
+                            <NumberInput
+                                min={0}
+                                max={365}
+                                value={ingestion.duplicate_window_days}
+                                onChange={(n) => patchIngestion({ duplicate_window_days: Number.isFinite(n) ? Math.min(365, Math.max(0, n)) : 0 })}
+                                suffix="days"
+                                className="w-28"
+                            />
+                        </Row>
+                        <Row label="Required fields" description="A contact missing any of these is rejected. Email is always required.">
+                            <RequiredFieldsPicker
+                                value={ingestion.required_fields}
+                                onChange={(required_fields) => patchIngestion({ required_fields })}
+                            />
+                        </Row>
+                    </>
+                )}
+            </Section>
+
+            <Section
                 eyebrow="Content checks"
                 description="Score each step's copy for the signals spam filters weight: trigger wording, stacked punctuation, link and image counts, attachments. Checked when you launch, and again per send against the copy the recipient actually receives once merge fields and spintax have resolved."
             >
@@ -238,5 +289,57 @@ function SendingSettings() {
                 )}
             </Section>
         </SectionShell>
+    );
+}
+
+const STANDARD_FIELDS: { value: string; label: string }[] = [
+    { value: "first_name", label: "First name" },
+    { value: "last_name", label: "Last name" },
+    { value: "company", label: "Company" },
+    { value: "phone", label: "Phone" },
+];
+
+function RequiredFieldsPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+    const custom = value.filter((f) => f.startsWith("custom:")).map((f) => f.slice(7));
+    const [text, setText] = React.useState(custom.join(", "));
+    React.useEffect(() => setText(custom.join(", ")), [custom.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    function toggle(f: string) {
+        onChange(value.includes(f) ? value.filter((x) => x !== f) : [...value, f]);
+    }
+    function commitCustom() {
+        const keys = text
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean);
+        const standard = value.filter((f) => !f.startsWith("custom:"));
+        onChange([...standard, ...Array.from(new Set(keys)).map((k) => `custom:${k}`)]);
+    }
+
+    return (
+        <div className="flex flex-col items-end gap-1.5">
+            <div className="flex flex-wrap justify-end gap-1">
+                {STANDARD_FIELDS.map((f) => (
+                    <button
+                        key={f.value}
+                        type="button"
+                        onClick={() => toggle(f.value)}
+                        className={cn(
+                            "h-7 px-2.5 rounded-md border text-[12px] transition-colors",
+                            value.includes(f.value) ? "border-sky-400 bg-sky-50 text-sky-700" : "border-slate-200 text-slate-600 hover:border-slate-300",
+                        )}
+                    >
+                        {f.label}
+                    </button>
+                ))}
+            </div>
+            <TextInput
+                value={text}
+                onChange={setText}
+                onBlur={commitCustom}
+                placeholder="Custom fields, e.g. source_id, signup_ip"
+                className="w-72"
+            />
+        </div>
     );
 }

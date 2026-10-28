@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/bitan-del/dakiya-mail/internal/errx"
 	"github.com/bitan-del/dakiya-mail/internal/infrastructure/db"
@@ -130,4 +131,30 @@ func (r *contactRepository) CampaignInOrganization(ctx context.Context, orgID, c
 		return false, errx.InternalError()
 	}
 	return ok, nil
+}
+
+// RecentContactEmails returns which of the lowercased addresses the organization added at or after since.
+func (r *contactRepository) RecentContactEmails(ctx context.Context, orgID uuid.UUID, emails []string, since time.Time) (map[string]bool, *errx.Error) {
+	out := map[string]bool{}
+	if len(emails) == 0 {
+		return out, nil
+	}
+	rows, err := r.DB.Query(ctx, `
+		SELECT DISTINCT lower(email) FROM contacts
+		WHERE organization_id = $1 AND lower(email) = ANY($2) AND first_seen_at >= $3
+	`, orgID, emails, since)
+	if err != nil {
+		db.CaptureError(err, "", nil, "recent contact emails")
+		return nil, errx.InternalError()
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			db.CaptureError(err, "", nil, "scan recent contact email")
+			return nil, errx.InternalError()
+		}
+		out[e] = true
+	}
+	return out, nil
 }
