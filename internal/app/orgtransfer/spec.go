@@ -259,6 +259,13 @@ var Tables = []Table{
 		Scope: `contact_id IN ` + orgContacts,
 	},
 	{
+		// Slugs are unique per instance; an import onto an instance that already
+		// uses one fails that row's insert, which the importer reports.
+		Name: "signup_forms", Group: models.OrgDataGroupContacts,
+		Scope:         scopeOrg,
+		ResetOnImport: []string{"submissions", "confirmations"},
+	},
+	{
 		Name: "contact_segments", Group: models.OrgDataGroupContacts,
 		Scope: scopeOrg,
 		Note:  "Saved filters; category and campaign ids inside them keep their source ids.",
@@ -732,6 +739,7 @@ var Tables = []Table{
 // with the reason. Kept as data so the docs page and the coverage test both
 // read from one list instead of restating it.
 var ExcludedTables = map[string]string{
+	"signup_form_pending":          "Unconfirmed double opt-in submissions; their emailed tokens point at the source instance.",
 	"organization_encrypted_keys":  "The organization's data key, wrapped by the source instance's KMS. The destination cannot unwrap it, and shipping it would put every org secret behind one exported blob.",
 	"api_idempotency_keys":         "A short-lived replay cache for in-flight API requests.",
 	"realtime_events":              "The websocket outbox. Every row is already delivered or expired.",

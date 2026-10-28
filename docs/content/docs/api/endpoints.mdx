@@ -130,6 +130,10 @@ A domain takes `domain`, `provider` (`amazon_ses`, `google_workspace`, `microsof
 | POST | `/contacts/:id/research` | `AI_RESEARCH` |
 | GET | `/contacts/:id/research` | `AI_RESEARCH` |
 | POST | `/contacts/research/batch` | `AI_RESEARCH` |
+| GET | `/signup-forms` | `READ_CONTACTS` |
+| POST | `/signup-forms` | `WRITE_CONTACTS` |
+| PATCH | `/signup-forms/:id` | `WRITE_CONTACTS` |
+| DELETE | `/signup-forms/:id` | `WRITE_CONTACTS` |
 | GET | `/segments` | `READ_CONTACTS` |
 | GET | `/segments/:id` | `READ_CONTACTS` |
 | POST | `/segments` | `WRITE_CONTACTS` |
@@ -148,6 +152,8 @@ A domain takes `domain`, `provider` (`amazon_ses`, `google_workspace`, `microsof
 `GET /contacts/custom-fields` lists the distinct custom-field keys used across your contacts (frequency-ranked), for building personalization pickers. It returns a flat string array under `data`, capped at 200 keys.
 
 The import pair is two steps over the same file: preview parses it and suggests a column mapping, commit applies the mapping you chose. Commit takes the stricter `BULK_CONTACTS` scope because one call writes up to 50,000 rows. A mapping problem, an unusable custom-field name or no `email` column, is a `400` on the whole request; see [contacts](/api/reference/contacts/).
+
+Signup forms take `name`, `slug` (3 to 63 lowercase letters, digits or dashes, unique on the instance, else `409` `form_slug_taken`), `title`, `description`, `fields` (`first_name`, `last_name`, `company`, `phone`), `category_ids`, `double_opt_in` with `email_account_id` (required when double opt-in is on), `success_message`, `redirect_url` (https) and `enabled`. The public pages are listed under [Public](#public). See [signup forms](/guides/contacts-crm/#signup-forms).
 
 Segments store a `filter` in the same shape `POST /contacts/search` takes, plus a `name` (1 to 80 characters, unique per workspace; a clash is a `409` with code `segment_name_taken`) and an optional `description`. Reads include `contact_count`, the number of contacts matching now. `POST /segments/:id/enroll` takes `campaign_id` and returns `matched`, `enrolled` (newly added) and `capped` (true when more than 100,000 matched; call it again for the rest). Enrolling twice adds nobody twice, so it needs no `Idempotency-Key`.
 
@@ -474,6 +480,7 @@ External MCP servers whose tools the assistant can use (see [Connect MCP tools](
 - `GET /health`
 - `POST /webhooks/github/releases` (HMAC-SHA256 signature)
 - `POST /webhook/stripe` (Stripe signature)
+- `GET /f/:slug`, `POST /f/:slug`, `GET /f/:slug/confirm` (hosted [signup forms](/guides/contacts-crm/#signup-forms); posts are rate limited per IP)
 - `POST /api/v1/integrations/inbound/amazon-ses/:secret` (Amazon SNS signature plus the per-connection secret; see [Amazon SES events](/guides/integrations/#amazon-ses-events))
 - `POST /webhook/campaign`, `/webhook/email`, `/webhook/user-email` (Google OIDC token from Cloud Tasks)
 - `GET /addresses/google/callback`, `GET /addresses/outlook/callback` (OAuth bouncer pages)
