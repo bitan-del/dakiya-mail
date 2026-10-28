@@ -335,6 +335,7 @@ export function useRealtimeEvents() {
           contact: [['contacts']],
           suppression: [['suppression'], ['analytics']],
           segment: [['segments'], ['contacts'], ['campaigns']],
+          sending_domain: [['domains'], ['emails']],
           campaign: [['campaigns'], ['analytics']],
           step: [['campaigns']],
           // ['emails'] rather than ['emails', 'list']: it prefix-matches the

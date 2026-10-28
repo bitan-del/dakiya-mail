@@ -25,6 +25,7 @@ import {
     SettingsIcon,
     ShieldCheckIcon,
     ShieldOffIcon,
+    GlobeIcon,
     BookmarkIcon,
     UsersIcon,
     LockIcon,
@@ -140,6 +141,7 @@ const sections: NavSection[] = [
         label: "Email",
         items: [
             { title: "Accounts", url: "/app/emails", icon: MailIcon, indicator: "accounts", advisorSurface: "emails", permission: "MANAGE_EMAILS", permissionLabel: "Manage mailboxes" },
+            { title: "Domains", url: "/app/emails/domains", icon: GlobeIcon, permission: "VIEW_CAMPAIGNS", permissionLabel: "View campaigns" },
             { title: "Campaigns", requires: "subscription", url: "/app/campaigns", icon: MegaphoneIcon, indicator: "campaigns", advisorSurface: "campaigns", permission: "VIEW_CAMPAIGNS", permissionLabel: "View campaigns" },
             { title: "Contacts", requires: "subscription", url: "/app/contacts", icon: UsersIcon, indicator: "contacts", advisorSurface: "contacts", permission: "VIEW_CONTACTS", permissionLabel: "View contacts" },
             { title: "Analytics", requires: "subscription", url: "/app/analytics", icon: BarChart3Icon, indicator: "analytics", permission: "VIEW_ANALYTICS", permissionLabel: "View analytics" },

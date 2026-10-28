@@ -37,6 +37,19 @@ All paths below are relative to the versioned base URL `https://api.dakiyamail.c
 | DELETE | `/emails/:id` | `WRITE_EMAILS` |
 | POST | `/emails/:id/send` | `SEND_CAMPAIGNS` |
 
+### Sender domains
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/domains` | `READ_EMAILS` |
+| GET | `/domains/:id` | `READ_EMAILS` |
+| POST | `/domains` | `WRITE_EMAILS` |
+| PATCH | `/domains/:id` | `WRITE_EMAILS` |
+| POST | `/domains/:id/verify` | `WRITE_EMAILS` |
+| DELETE | `/domains/:id` | `WRITE_EMAILS` |
+
+A domain takes `domain`, `provider` (`amazon_ses`, `google_workspace`, `microsoft_365` or `other`) and optional `dkim_selectors` (for Amazon SES, the three Easy DKIM tokens). Every read returns `records`, the SPF, DKIM and DMARC records to publish, each with `found` from the last check (`null` before the first one). `POST` and `PATCH` check DNS immediately. Verify writes the verdict to every mailbox on the domain, so it is write-scoped; it is derived from public DNS and safe to repeat without an `Idempotency-Key`. A domain already added is a `409` with code `domain_already_added`; one that is not a valid domain is a `400` with `invalid_domain`.
+
 ### Campaigns and sequences
 
 | Method | Path | API Permission |

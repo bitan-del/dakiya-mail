@@ -134,6 +134,8 @@ const (
 	AuditEntitySuppression AuditEntityType = "suppression"
 	// Saved contact segments.
 	AuditEntitySegment AuditEntityType = "segment"
+	// Sender domains and their DNS checks.
+	AuditEntitySendingDomain AuditEntityType = "sending_domain"
 )
 
 // AuditActor is the minimal identity of the member who performed an action,

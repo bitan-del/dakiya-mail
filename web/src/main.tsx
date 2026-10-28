@@ -25,6 +25,7 @@ import AnalyticsPage from './app/app/analytics/page';
 import DeliverabilityPage from './app/app/deliverability/page';
 import SuppressionPage from './app/app/suppression/page';
 import SegmentsPage from './app/app/contacts/segments/page';
+import DomainsPage from './app/app/emails/domains/page';
 import DeliverabilityEventsPage from './app/app/deliverability/events/page';
 import PipelinesPage from './app/app/crm/pipelines/page';
 import DealsPage from './app/app/crm/deals/page';
@@ -298,6 +299,10 @@ const router = createBrowserRouter([
           {
             path: "deliverability/events",
             element: <DeliverabilityEventsPage />,
+          },
+          {
+            path: "emails/domains",
+            element: <DomainsPage />,
           },
           {
             path: "contacts/segments",
