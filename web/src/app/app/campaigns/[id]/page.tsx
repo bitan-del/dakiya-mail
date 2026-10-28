@@ -102,6 +102,13 @@ export default function CampaignOverview() {
         { label: "Clicks", value: summary?.unique_clicks, icon: MousePointerClickIcon, dot: "bg-violet-500" },
         { label: "Replies", value: summary?.replies, icon: ReplyIcon, dot: "bg-amber-500" },
         { label: "Bounces", value: summary?.bounces, icon: TriangleAlertIcon, dot: "bg-rose-500" },
+        // Only providers with a delivery feed (Amazon SES) report these.
+        ...(summary && (summary.delivered > 0 || summary.deferred > 0)
+            ? [
+                  { label: "Delivered", value: summary.delivered, icon: MailCheckIcon, dot: "bg-teal-500" },
+                  { label: "Deferred", value: summary.deferred, icon: TriangleAlertIcon, dot: "bg-yellow-400" },
+              ]
+            : []),
     ];
 
     return (

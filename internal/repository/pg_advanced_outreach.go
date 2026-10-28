@@ -482,7 +482,9 @@ func (r *advancedOutreachRepository) GetDeliverabilityDashboard(ctx context.Cont
 			COUNT(*) FILTER (WHERE event_type = 'unsubscribe') AS unsubscribes,
 			COUNT(*) FILTER (WHERE event_type = 'reply') AS replies,
 			COUNT(*) FILTER (WHERE event_type = 'open') AS opens,
-			COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+			COUNT(*) FILTER (WHERE event_type = 'click') AS clicks,
+			COUNT(*) FILTER (WHERE event_type = 'delivered') AS delivered,
+			COUNT(*) FILTER (WHERE event_type = 'deferred') AS deferred
 		FROM deliverability_events
 		WHERE organization_id = $1
 		  AND created_at >= $2
@@ -496,6 +498,8 @@ func (r *advancedOutreachRepository) GetDeliverabilityDashboard(ctx context.Cont
 		&out.ReplyCount,
 		&out.OpenCount,
 		&out.ClickCount,
+		&out.DeliveredCount,
+		&out.DeferredCount,
 	); err != nil {
 		return nil, err
 	}
@@ -552,6 +556,10 @@ func (r *advancedOutreachRepository) GetDeliverabilityDashboard(ctx context.Cont
 	out.OpenRate = models.Rate(out.OpenCount, out.EmailsSent)
 	out.ClickRate = models.Rate(out.ClickCount, out.EmailsSent)
 	out.ReplyRate = models.Rate(out.ReplyCount, out.EmailsSent)
+	if out.DeliveredCount > 0 {
+		dr := models.Rate(out.DeliveredCount, out.EmailsSent)
+		out.DeliveryRate = &dr
+	}
 
 	out.Timeseries = r.deliverabilityTimeseries(ctx, organizationID, from, to)
 	out.ByCampaign = r.deliverabilityByCampaign(ctx, organizationID, from, to)

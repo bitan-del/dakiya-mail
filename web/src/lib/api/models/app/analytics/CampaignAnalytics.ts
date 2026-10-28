@@ -21,6 +21,8 @@ export interface CampaignSummary {
     replies: number
     bounces: number
     unsubscribes: number
+    delivered: number
+    deferred: number
     open_rate: number
     click_rate: number
     reply_rate: number

@@ -277,6 +277,8 @@ type DeliverabilityDashboard struct {
 	ReplyCount           int       `json:"reply_count"`
 	OpenCount            int       `json:"open_count"`
 	ClickCount           int       `json:"click_count"`
+	DeliveredCount       int       `json:"delivered_count"`
+	DeferredCount        int       `json:"deferred_count"`
 	SuppressedRecipients int       `json:"suppressed_recipients"`
 	DLQPending           int       `json:"dlq_pending"`
 	IntentPositive       int       `json:"intent_positive"`
@@ -293,6 +295,8 @@ type DeliverabilityDashboard struct {
 	OpenRate      float64 `json:"open_rate"`
 	ClickRate     float64 `json:"click_rate"`
 	ReplyRate     float64 `json:"reply_rate"`
+	// DeliveryRate is delivered over sent; nil when no provider reports deliveries.
+	DeliveryRate *float64 `json:"delivery_rate,omitempty"`
 
 	// Seed inbox-placement (nil when there are no seed samples in the window).
 	SpamPlacementRate  *float64 `json:"spam_placement_rate,omitempty"`

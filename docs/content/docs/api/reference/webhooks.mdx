@@ -457,7 +457,7 @@ The full catalog is available at `GET /webhooks/event-types`. Below is the compl
 | `campaign.updated` | A campaign's settings change. | |
 | `campaign.deleted` | A campaign is deleted. | |
 | `campaign.email_sent` | A campaign email is dispatched by a worker. | yes |
-| `campaign.email_delivered` | A campaign email is accepted by the recipient's mail server. | yes |
+| `campaign.email_delivered` | A campaign email is accepted by the recipient's mail server, as reported by Amazon SES. Mailboxes without a delivery feed never send it. | yes |
 | `campaign.email_opened` | A tracked open is recorded. | yes |
 | `campaign.email_clicked` | A tracked link click is recorded. | yes |
 | `campaign.email_bounced` | A campaign email bounces. | |
