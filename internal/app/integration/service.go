@@ -266,7 +266,7 @@ func (s *service) Connect(ctx context.Context, orgID, userID uuid.UUID, provider
 
 	var inboundSecret string
 	var err error
-	if provider == models.IntegrationCalendly || provider == models.IntegrationCalCom {
+	if provider == models.IntegrationCalendly || provider == models.IntegrationCalCom || provider == models.IntegrationAmazonSES {
 		inboundSecret, err = generateInboundSecret(provider)
 		if err != nil {
 			return nil, err
@@ -280,7 +280,7 @@ func (s *service) Connect(ctx context.Context, orgID, userID uuid.UUID, provider
 
 	status := models.IntegrationStatusPending
 	switch {
-	case provider == models.IntegrationCalendly || provider == models.IntegrationCalCom:
+	case provider == models.IntegrationCalendly || provider == models.IntegrationCalCom || provider == models.IntegrationAmazonSES:
 		// Inbound providers are "connected" once the URL exists.
 		status = models.IntegrationStatusConnected
 	case isAutomationProvider(provider):
@@ -1213,6 +1213,8 @@ func generateInboundSecret(provider models.IntegrationProvider) (string, error) 
 		prefix = "calendly"
 	case models.IntegrationCalCom:
 		prefix = "calcom"
+	case models.IntegrationAmazonSES:
+		prefix = "ses"
 	}
 	return prefix + "_" + hex.EncodeToString(buf), nil
 }
@@ -1225,6 +1227,8 @@ func BuildInboundURL(provider models.IntegrationProvider, secret string) string 
 		return "/api/v1/integrations/inbound/calendly/" + secret
 	case models.IntegrationCalCom:
 		return "/api/v1/integrations/inbound/cal-com/" + secret
+	case models.IntegrationAmazonSES:
+		return "/api/v1/integrations/inbound/amazon-ses/" + secret
 	}
 	return ""
 }

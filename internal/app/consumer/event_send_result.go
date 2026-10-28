@@ -51,6 +51,12 @@ func (s *JobsService) HandleEmailSent(ctx context.Context, result models.SendEma
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("could not record worker message id")
 		}
 	}
+	// SES and similar providers name their own id in delivery events, not ours.
+	if p := result.ProviderMsgID; p != "" && p != result.MessageID && p != task.MessageID {
+		if err := s.TaskRepo.UpdateTaskProviderMessageID(ctx, task.ID, p); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("could not record provider message id")
+		}
+	}
 	switch task.TaskType {
 	case "campaign":
 		s.repairCampaignSendStamp(ctx, task)

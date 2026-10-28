@@ -19,6 +19,7 @@ The Integrations page is a searchable directory with your existing connections a
 | Slack | Notifications | one-click OAuth | Ping a channel on reply, bounce, or deliverability dips |
 | Discord | Notifications | webhook URL | Ping a server channel on reply, bounce, or warmup health |
 | Calendly, Cal.com | Meetings | minted inbound URL | Track booked, rescheduled, and canceled calls |
+| Amazon SES | Deliverability | minted inbound URL (SNS) | Record SES deliveries, bounces, complaints and delays against each send |
 
 Three connect styles appear on the catalog cards: `one-click` OAuth, `api_key` for providers without an OAuth app, and `webhook` for a minted inbound URL or a pasted channel URL.
 
@@ -62,6 +63,25 @@ URLs are validated before storage under the same policy as customer webhooks: th
 </Callout>
 
 **Inbound webhooks** work the other way: Calendly and Cal.com call into a URL Dakiya Mail mints for you, landing booked, rescheduled, and canceled calls on the contact timeline in real time. Rotate the secret from connection settings if exposed.
+
+## Amazon SES events
+
+Connect **Amazon SES** from **Integrations** to receive SES's own delivery feed for mailboxes that send through SES SMTP (see [Amazon SES mailboxes](/guides/mailboxes/#amazon-ses)). Dakiya Mail mints an inbound URL:
+
+1. In Amazon SNS, create a topic and add an **HTTPS** subscription to the URL. Dakiya Mail confirms the subscription itself.
+2. In SES, open your verified identity, then **Notifications**, and send bounce, complaint and delivery notifications to that topic. A configuration set with an SNS event destination works too, and adds delivery delays.
+
+Every message is checked against Amazon's SNS signature, and the first topic that confirms is tied to the connection, so no other topic can post to it. Events are matched to the send through SES's own message id, which Dakiya Mail records from SES's reply when the email goes out. Events for mail this workspace did not send are ignored.
+
+| SES event | Recorded as | Suppresses |
+|---|---|---|
+| Permanent bounce | Bounce (hard) | Yes |
+| Transient or undetermined bounce | Deferred (soft) | No |
+| Delivery delay | Deferred | No |
+| Complaint | Complaint | Yes |
+| Delivery | Delivered | No |
+
+The URL must be reachable from the internet, so a laptop install needs a tunnel or a public host.
 
 ## Feeding automations
 

@@ -62,6 +62,8 @@ func Run(
 	// rotatable from the dashboard.
 	r.POST("/api/v1/integrations/inbound/calendly/:secret", h.InboundCalendly)
 	r.POST("/api/v1/integrations/inbound/cal-com/:secret", h.InboundCalCom)
+	// Amazon SES notifications via SNS; the SNS signature is verified in the handler.
+	r.POST("/api/v1/integrations/inbound/amazon-ses/:secret", h.InboundAmazonSES)
 	// Generic per-automation inbound trigger: the token in the path is the
 	// credential, resolving to one automation that runs with the JSON body.
 	r.POST("/api/v1/integrations/inbound/automation/:token", h.InboundAutomation)

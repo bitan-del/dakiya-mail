@@ -61,6 +61,8 @@ type Service interface {
 	ListSuppressionHashLists(ctx context.Context, organizationID uuid.UUID) ([]models.SuppressionHashList, *errx.Error)
 	DeleteSuppressionHashList(ctx context.Context, organizationID uuid.UUID, algo models.SuppressionHashAlgo, listName string) (int64, *errx.Error)
 	ExportSuppressions(ctx context.Context, organizationID uuid.UUID, w io.Writer, format SuppressionFormat) (int, *errx.Error)
+	// RecordSESNotification ingests one Amazon SES bounce, complaint, delivery or delay notification.
+	RecordSESNotification(ctx context.Context, organizationID uuid.UUID, message []byte) (*SESEventResult, *errx.Error)
 	// Unsubscribe suppresses a contact in response to a List-Unsubscribe action
 	// (one-click POST or the manual link). Always suppresses — it's an explicit
 	// recipient request, independent of the auto-suppress settings.
@@ -1118,7 +1120,9 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 		models.DeliverabilityEventUnsubscribe,
 		models.DeliverabilityEventOpen,
 		models.DeliverabilityEventClick,
-		models.DeliverabilityEventReply:
+		models.DeliverabilityEventReply,
+		models.DeliverabilityEventDelivered,
+		models.DeliverabilityEventDeferred:
 	default:
 		return errx.New(errx.BadRequest, "invalid event_type")
 	}

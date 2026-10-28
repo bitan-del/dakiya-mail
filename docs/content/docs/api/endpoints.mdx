@@ -428,6 +428,7 @@ External MCP servers whose tools the assistant can use (see [Connect MCP tools](
 - `GET /health`
 - `POST /webhooks/github/releases` (HMAC-SHA256 signature)
 - `POST /webhook/stripe` (Stripe signature)
+- `POST /api/v1/integrations/inbound/amazon-ses/:secret` (Amazon SNS signature plus the per-connection secret; see [Amazon SES events](/guides/integrations/#amazon-ses-events))
 - `POST /webhook/campaign`, `/webhook/email`, `/webhook/user-email` (Google OIDC token from Cloud Tasks)
 - `GET /addresses/google/callback`, `GET /addresses/outlook/callback` (OAuth bouncer pages)
 - `POST /oauth/token`, `POST /oauth/revoke` (OAuth token endpoints, authenticated by the client's id and secret, or PKCE for public clients)

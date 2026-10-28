@@ -186,6 +186,22 @@ func Catalog() []models.IntegrationCatalogEntry {
 			},
 		},
 
+		// Deliverability -------------------------------------------------------
+		{
+			Provider:    models.IntegrationAmazonSES,
+			Name:        "Amazon SES",
+			Tagline:     "Delivered, bounced, complained and delayed, straight from SES.",
+			Category:    models.IntegrationCategoryDeliverability,
+			AuthMethod:  string(models.IntegrationAuthWebhook),
+			DocsURL:     "https://docs.aws.amazon.com/ses/latest/dg/monitor-sending-activity-using-notifications-sns.html",
+			WebhookHint: "Create an SNS topic, subscribe this URL to it over HTTPS, then point your SES identity's bounce, complaint and delivery notifications at the topic.",
+			Highlights: []string{
+				"We mint an inbound URL and confirm the SNS subscription for you",
+				"Hard bounces and complaints suppress the recipient; soft bounces and delays are logged only",
+				"Events attach to the exact campaign send through SES's own message id",
+			},
+		},
+
 		// NOTE: Google Sheets is intentionally NOT a catalog integration. The
 		// google_sheets OAuth connection still exists (it powers the on-demand
 		// Lead Sync feature under Contacts), but it is no longer surfaced as an

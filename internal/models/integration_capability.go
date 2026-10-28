@@ -219,6 +219,9 @@ func Capabilities() map[IntegrationProvider]ProviderCapability {
 		IntegrationCalCom: {
 			Provider: IntegrationCalCom, Directions: pushOnly, SupportsBookingLink: true,
 		},
+		IntegrationAmazonSES: {
+			Provider: IntegrationAmazonSES, Directions: pushOnly,
+		},
 	}
 }
 

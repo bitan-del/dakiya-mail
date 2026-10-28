@@ -101,7 +101,7 @@ export default function ConnectDrawer({
     const finishOAuth = useFinishIntegrationOAuth();
 
     const isOAuth = entry.auth_method === "oauth";
-    const isInbound = entry.provider === "calendly" || entry.provider === "cal_com";
+    const isInbound = entry.provider === "calendly" || entry.provider === "cal_com" || entry.provider === "amazon_ses";
     const isAutomation =
         entry.provider === "zapier" || entry.provider === "make" || entry.provider === "n8n";
     const fields = FIELDS_BY_PROVIDER[entry.provider] ?? [];

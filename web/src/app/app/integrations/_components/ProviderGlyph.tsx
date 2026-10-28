@@ -43,7 +43,9 @@ const BRAND_ICON: Record<string, { hex: string; path: string }> = {
 };
 
 // Neutral tinted-initial fallback for anything without a mark or brand color.
-const BRAND_TINT: Record<string, { bg: string; ring: string; text: string }> = {};
+const BRAND_TINT: Record<string, { bg: string; ring: string; text: string }> = {
+    amazon_ses: { bg: "bg-orange-50", ring: "ring-orange-200", text: "text-orange-700" },
+};
 
 export default function ProviderGlyph({
     provider,
