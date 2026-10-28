@@ -81,6 +81,7 @@ Returned when the request cannot be processed due to invalid syntax.
 | `contact_ingestion_rejected` | `POST /contacts` included a contact that breaks the workspace's [contact intake rules](/guides/contacts-crm/#contact-intake-rules): a missing required field or an address added within the duplicate window. The whole request is refused and the message names up to 10 offending addresses with their reason |
 | `recipient_suppressed` | `POST /transactional/send` was addressed to a suppressed recipient (plain or hashed list). Nothing was queued |
 | `invalid_to`, `invalid_subject`, `invalid_body`, `invalid_delay_seconds`, `invalid_track_ids`, `invalid_template_id`, `invalid_email_account_id` | A `POST /transactional/send` field is missing or out of range; the message says which limit applies |
+| `invalid_brand_name`, `invalid_brand_website` | A brand's name is empty or over 80 characters, or its website is not an http(s) URL |
 | `invalid_domain` | A sender domain is not a valid domain name |
 | `invalid_dkim_selector` | A DKIM selector has characters other than letters, digits, dots and dashes, or more than 10 were given |
 | `invalid_segment_name` | A segment name is empty or longer than 80 characters |
@@ -215,6 +216,7 @@ Returned when the request conflicts with existing data.
 **Common causes:**
 - Trying to create a resource that already exists
 - Duplicate unique values
+- `brand_name_taken`: a brand with that name (compared case-insensitively) already exists
 - `domain_already_added`: the sender domain is already in the workspace
 - `segment_name_taken`: a segment with that name (compared case-insensitively) already exists in the workspace
 

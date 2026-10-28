@@ -24,6 +24,13 @@ import (
 )
 
 type EmailService interface {
+	// Brands (brands.go).
+	ListBrands(ctx context.Context, orgID uuid.UUID) ([]models.Brand, *errx.Error)
+	GetBrand(ctx context.Context, orgID, id uuid.UUID) (*models.Brand, *errx.Error)
+	SaveBrand(ctx context.Context, orgID uuid.UUID, id *uuid.UUID, req *models.SaveBrandRequest) (*models.Brand, *errx.Error)
+	DeleteBrand(ctx context.Context, orgID, id uuid.UUID) *errx.Error
+	SetBrandMailboxes(ctx context.Context, orgID, brandID uuid.UUID, rawIDs []string) (*models.Brand, *errx.Error)
+
 	// Sender domains (domains.go).
 	ListSendingDomains(ctx context.Context, orgID uuid.UUID) ([]models.SendingDomain, *errx.Error)
 	GetSendingDomain(ctx context.Context, orgID, id uuid.UUID) (*models.SendingDomain, *errx.Error)

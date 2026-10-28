@@ -140,6 +140,11 @@ var Tables = []Table{
 		Scope: `team_id IN ` + orgTeams,
 	},
 	{
+		// Above email_accounts, whose brand_id points here.
+		Name: "brands", Group: models.OrgDataGroupCore,
+		Scope: scopeOrg,
+	},
+	{
 		Name: "email_accounts", Group: models.OrgDataGroupCore,
 		Scope: scopeOrg,
 		// Worker placement is a property of the instance the mailbox runs on,

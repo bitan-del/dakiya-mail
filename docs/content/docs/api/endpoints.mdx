@@ -37,6 +37,19 @@ All paths below are relative to the versioned base URL `https://api.dakiyamail.c
 | DELETE | `/emails/:id` | `WRITE_EMAILS` |
 | POST | `/emails/:id/send` | `SEND_CAMPAIGNS` |
 
+### Brands
+
+| Method | Path | API Permission |
+|--------|------|----------------|
+| GET | `/brands` | `READ_EMAILS` |
+| GET | `/brands/:id` | `READ_EMAILS` |
+| POST | `/brands` | `WRITE_EMAILS` |
+| PATCH | `/brands/:id` | `WRITE_EMAILS` |
+| PUT | `/brands/:id/mailboxes` | `WRITE_EMAILS` |
+| DELETE | `/brands/:id` | `WRITE_EMAILS` |
+
+A brand takes `name` (1 to 80 characters, unique per workspace, else `409` `brand_name_taken`), `website` (an http(s) URL, else `400` `invalid_brand_website`), `physical_address`, `footer_text`, `footer_enabled` and `unsubscribe_link`. `PUT /brands/:id/mailboxes` replaces the brand's mailboxes with `email_account_ids`, moving each from any other brand, so repeating it is safe without an `Idempotency-Key`. Reads include `mailbox_ids`. See [brands](/guides/mailboxes/#brands).
+
 ### Transactional email
 
 | Method | Path | API Permission |

@@ -724,6 +724,18 @@ func Run(
 				deliverability.POST("/events", h.IngestDeliverabilityEvent)
 			}
 
+			// Brands: sender identities whose footer goes on their mailboxes' campaign mail.
+			brands := protected.Group("/brands")
+			brands.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite))
+			{
+				brands.GET("", m.RequireAccess(models.PermViewCampaigns, models.APIPermReadEmails), h.ListBrands)
+				brands.GET("/:id", m.RequireAccess(models.PermViewCampaigns, models.APIPermReadEmails), h.GetBrand)
+				brands.POST("", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.CreateBrand)
+				brands.PATCH("/:id", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.UpdateBrand)
+				brands.PUT("/:id/mailboxes", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.SetBrandMailboxes)
+				brands.DELETE("/:id", m.RequireAccess(models.PermManageEmails, models.APIPermWriteEmails), h.DeleteBrand)
+			}
+
 			// Transactional email: one message to one recipient, sent without the
 			// dashboard's undo window. Same scopes as composing in the unibox.
 			transactional := protected.Group("/transactional")
