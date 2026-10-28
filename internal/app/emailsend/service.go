@@ -38,6 +38,13 @@ type SendEmailRequest struct {
 	//   "scheduled" → use ScheduledAt verbatim (must be in the future)
 	SendMode    string     `json:"send_mode"`
 	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+
+	// Set by the transactional API, never by request JSON: a pre-minted
+	// Message-ID it returns to the caller, and an explicit delay in place of
+	// the dashboard's undo-send window.
+	MessageID    string `json:"-"`
+	NoUndoDelay  bool   `json:"-"`
+	DelaySeconds int    `json:"-"`
 }
 
 type SendEmailResponse struct {
@@ -212,7 +219,9 @@ func (s *emailSendService) SendEmail(ctx context.Context, userID, orgID, account
 	// future so the user can still cancel them through the existing
 	// DELETE /unibox/scheduled/:task_id path. Clamped to the config
 	// bounds so a bad DB value can never park a send for hours.
-	if sendMode == "instant" {
+	if sendMode == "instant" && req.NoUndoDelay {
+		scheduledAt = time.Now().Add(time.Duration(max(req.DelaySeconds, 0)) * time.Second)
+	} else if sendMode == "instant" {
 		secs := config.UndoSendSecondsDefault
 		if s.userRepo != nil {
 			if v, err := s.userRepo.GetUndoSendSeconds(ctx, userID); err == nil {
@@ -230,6 +239,7 @@ func (s *emailSendService) SendEmail(ctx context.Context, userID, orgID, account
 		TaskType:       "email",
 		EmailAccountID: accountID,
 		Status:         "pending",
+		MessageID:      req.MessageID,
 		ScheduledAt:    &scheduledAt,
 	}
 

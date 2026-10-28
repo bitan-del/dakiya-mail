@@ -62,6 +62,8 @@ type Service interface {
 	DeleteSuppressionHashList(ctx context.Context, organizationID uuid.UUID, algo models.SuppressionHashAlgo, listName string) (int64, *errx.Error)
 	ExportSuppressions(ctx context.Context, organizationID uuid.UUID, w io.Writer, format SuppressionFormat) (int, *errx.Error)
 	ListDeliverabilityEvents(ctx context.Context, organizationID uuid.UUID, f models.DeliverabilityEventFilter, limit int, cursor *uuid.UUID) (*models.DeliverabilityEventListResult, *errx.Error)
+	RecordTransactionalMessage(ctx context.Context, orgID, taskID uuid.UUID, templateID *uuid.UUID, recipient string, trackIDs []string) *errx.Error
+	GetTransactionalMessage(ctx context.Context, orgID, taskID uuid.UUID) (*models.TransactionalMessage, *errx.Error)
 	// RecordSESNotification ingests one Amazon SES bounce, complaint, delivery or delay notification.
 	RecordSESNotification(ctx context.Context, organizationID uuid.UUID, message []byte) (*SESEventResult, *errx.Error)
 	// Unsubscribe suppresses a contact in response to a List-Unsubscribe action
@@ -1230,6 +1232,10 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 	}
 	if req.TaskID != nil {
 		payload["task_id"] = req.TaskID.String()
+		// Transactional sends carry the caller's own ids back on every event.
+		if ids, terr := s.repo.TransactionalTrackIDs(ctx, *req.TaskID); terr == nil && len(ids) > 0 {
+			payload["track_ids"] = ids
+		}
 	}
 	if bt, ok := req.Metadata["bounce_type"].(string); ok && bt != "" {
 		payload["bounce_type"] = bt

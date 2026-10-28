@@ -1,0 +1,56 @@
+---
+title: Transactional email
+description: "Send one email to one recipient from your own systems, from a template or a body, and follow it through delivery webhooks."
+---
+
+`POST /transactional/send` sends a single email to a single recipient from one of your mailboxes: an order confirmation, a password reset, a report that is ready. It is for mail your systems trigger, one person at a time, not for campaigns.
+
+```bash
+curl https://api.example.com/v1/transactional/send \
+  -H "Authorization: Bearer $DAKIYA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-42-confirmation" \
+  -d '{
+    "email_account_id": "auto",
+    "to": { "email": "ana@example.com", "name": "Ana" },
+    "template_id": "6f1c...",
+    "substitutions": { "order": "#42", "name": "Ana" },
+    "track_ids": ["order-42", "customer-7"]
+  }'
+```
+
+## The request
+
+| Field | Required | Notes |
+|---|---|---|
+| `to.email` | Yes | One recipient. `to.name` is optional |
+| `email_account_id` | No | The mailbox to send from, or `auto` (the default) to pick the best one for the recipient, as the unibox composer does |
+| `subject` | Unless the template has one | `{{.key}}` placeholders are filled from `substitutions` |
+| `html_body`, `text_body` | One of these or `template_id` | At most 1 MB each |
+| `template_id` | No | A saved template. Its subject and bodies are used where the request leaves them out |
+| `substitutions` | No | Values for `{{.key}}` placeholders. Values are HTML-escaped where they land in an HTML body, so a name cannot inject markup. Unknown placeholders render empty |
+| `delay_seconds` | No | `0` (the default) sends now; up to `43199` (12 hours) |
+| `track_ids` | No | Up to 5 of your own ids, each at most 255 characters |
+
+A recipient on the [suppression list](/guides/deliverability/#suppression-list), plain or hashed, is refused with `recipient_suppressed` before anything is queued. Send an `Idempotency-Key` so a retried request does not send twice.
+
+## The response
+
+```json
+{
+  "task_id": "46f25552-5c0a-42a6-a9e2-c5e0f7e270b2",
+  "message_id": "<01d19a66-2a89-4532-8fef-cbff97fffdaf@mail.example.com>",
+  "account_email": "orders@mail.example.com",
+  "scheduled_at": "2026-10-28T13:04:42Z",
+  "track_ids": ["order-42", "customer-7"]
+}
+```
+
+A `200` means the email is queued, not delivered. `message_id` is the Message-ID header the email will carry; keep it, or the `task_id`, to match later events.
+
+## Following it
+
+- `GET /transactional/:task_id` returns the send's status (`pending`, `active`, `completed`, `failed` or `cancelled`), its Message-ID, the provider's own id once sent, your track ids, and every deliverability event recorded for it.
+- [Webhooks](/guides/webhooks/) for bounces, complaints and, for mailboxes on Amazon SES with [SES events](/guides/integrations/#amazon-ses-events) connected, deliveries carry `task_id` and your `track_ids`.
+
+Transactional sends count toward the mailbox's daily sending like any other mail it sends, and are not tracked for opens or clicks.

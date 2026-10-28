@@ -480,8 +480,10 @@ The full catalog is available at `GET /webhooks/event-types`. Below is the compl
 
 | Event | Description | Firehose |
 | --- | --- | --- |
-| `deliverability.bounce` | A bounce signal is processed (hard or soft). | |
+| `deliverability.bounce` | A hard (permanent) bounce is processed. Soft bounces are logged as deferred and send no webhook. | |
 | `deliverability.complaint` | A complaint (spam report) is processed. | |
+
+Bounce, complaint, unsubscribe and delivered payloads carry `task_id` when the event is tied to a send, `bounce_type` (`hard` or `soft`) when the provider reports one, and `track_ids` for [transactional sends](/guides/transactional-email/).
 
 ### Inbox
 

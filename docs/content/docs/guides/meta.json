@@ -31,6 +31,7 @@
     "connect-mcp-tools",
     "---Integrations---",
     "webhooks",
+    "transactional-email",
     "integrations",
     "zapier",
     "make",

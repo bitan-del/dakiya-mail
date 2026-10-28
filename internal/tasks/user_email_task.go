@@ -153,8 +153,11 @@ func (s *tasksService) HandleUserEmailTask(task *proto.ProcessTask) *errx.Error 
 		}
 	}
 
-	// STEP 7: Generate Message-ID
-	messageID := generateMessageID(account.Email)
+	// STEP 7: Generate Message-ID, unless the transactional API already returned one to its caller.
+	messageID := taskRecord.MessageID
+	if messageID == "" {
+		messageID = generateMessageID(account.Email)
+	}
 
 	// STEP 8: Build InReplyTo string
 	var inReplyTo string
