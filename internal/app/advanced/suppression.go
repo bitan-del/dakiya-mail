@@ -272,3 +272,11 @@ func (s *service) ExportSuppressions(ctx context.Context, organizationID uuid.UU
 	}
 	return rows, nil
 }
+
+func (s *service) ListDeliverabilityEvents(ctx context.Context, organizationID uuid.UUID, f models.DeliverabilityEventFilter, limit int, cursor *uuid.UUID) (*models.DeliverabilityEventListResult, *errx.Error) {
+	res, err := s.repo.ListDeliverabilityEvents(ctx, organizationID, f, limit, cursor)
+	if err != nil {
+		return nil, toErrx(err)
+	}
+	return res, nil
+}

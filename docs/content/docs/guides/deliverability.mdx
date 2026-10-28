@@ -34,6 +34,12 @@ Placement figures only appear once seed data exists, and a small sample is a hin
 
 **Warmup placement is your continuous signal.** Seed tests are point-in-time probes, but every verified warmup delivery reports inbox or spam, so drift appears here before it becomes complaints on a campaign.
 
+## Events log
+
+**Events log** on the Deliverability page lists every recorded event, newest first: deliveries, deferrals, bounces (marked hard or soft), complaints, unsubscribes, opens, clicks and replies. Filter by type, search by recipient or reason, and pick a window of 7, 30 or 90 days or all time. Expand a row to see the campaign, the sending mailbox, where the event came from (the mailbox's inbox, Amazon SES, the unsubscribe link or the API) and its details, such as the SMTP status of a bounce. The log updates live.
+
+Deliveries and deferrals only appear for mailboxes whose provider reports them, such as [Amazon SES](/guides/integrations/#amazon-ses-events).
+
 ## Health bands
 
 Each mailbox sits in a band, shown as a colored chip. The band controls how Dakiya Mail treats it.

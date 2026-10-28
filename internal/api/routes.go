@@ -746,6 +746,13 @@ func Run(
 			{
 				postmasterRead.GET("", h.GetPostmasterReport)
 			}
+
+			// Deliverability events log: an analytics read, like the dashboard it drills into.
+			deliverabilityRead := protected.Group("/deliverability/events")
+			deliverabilityRead.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitAnalytics), m.RequireAccess(models.PermViewAnalytics, models.APIPermReadAnalytics))
+			{
+				deliverabilityRead.GET("", h.ListDeliverabilityEvents)
+			}
 			postmasterCredentials := jwtOnly.Group("/deliverability/postmaster/credentials")
 			postmasterCredentials.Use(m.RequireOrganization(), m.RateLimitMiddleware(models.RateLimitWrite), m.RequirePermission(models.PermManageSettings))
 			{
